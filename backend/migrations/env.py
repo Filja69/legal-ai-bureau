@@ -17,10 +17,13 @@ if config.config_file_name is not None:
 
 target_metadata = Base.metadata
 
-# Same Neon sslmode->ssl rewrite as app.db.session.get_engine() (staging
-# audit §8) — migrations run through their own engine, not get_engine(), so
-# this needs applying here too or `alembic upgrade head` against Neon would
-# silently ignore the SSL query parameter.
+# Same URL normalization as app.db.session.get_engine() (staging audit §8,
+# Railway psycopg2 incident) — migrations run through their own engine, not
+# get_engine(), so this needs applying here too. Without it, `alembic
+# upgrade head` against a bare postgresql:// DATABASE_URL (Railway/Heroku's
+# auto-injected form) would fail trying to import psycopg2 exactly like the
+# app's own /ready check did, and against Neon would silently ignore the
+# sslmode query parameter.
 config.set_main_option("sqlalchemy.url", _normalize_database_url(get_settings().database_url))
 
 

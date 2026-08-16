@@ -23,21 +23,56 @@ _session_factory: async_sessionmaker[AsyncSession] | None = None
 
 
 def _normalize_database_url(url: str) -> str:
-    """Neon (and most managed Postgres UIs) hand out connection strings with
-    `?sslmode=require` — the libpq/psycopg convention. SQLAlchemy's asyncpg
-    dialect reads SSL configuration from a query parameter named `ssl`, not
-    `sslmode`; passed through unchanged, `sslmode` is silently ignored by
-    asyncpg (staging audit §8). Rewriting the key here means a connection
-    string copy-pasted from Neon's dashboard (with the driver prefix changed
-    to `postgresql+asyncpg://`) works without the operator needing to know
-    this detail. A no-op for any URL that doesn't set `sslmode`.
+    """Two independent normalizations, both aimed at "the operator pasted a
+    connection string exactly as their PaaS/DB dashboard gave it, without
+    knowing SQLAlchemy async-driver conventions":
+
+    1. Bare `postgresql://` or `postgres://` (no driver component) — this is
+       exactly what Railway's and Heroku's auto-injected `DATABASE_URL`
+       reference variables look like (e.g. `${{Postgres.DATABASE_URL}}` on
+       Railway). `create_async_engine()` resolves an unspecified driver to
+       SQLAlchemy's classic *synchronous* default for the "postgresql"
+       dialect, psycopg2 — a package this project has never depended on
+       (asyncpg is the only Postgres driver anywhere in this codebase) —
+       and fails with `ModuleNotFoundError: No module named 'psycopg2'` the
+       moment the engine is constructed. `postgres://` (Heroku's older
+       short form) fails even harder: SQLAlchemy doesn't recognize
+       "postgres" as a dialect name at all
+       (`NoSuchModuleError: Can't load plugin: sqlalchemy.dialects:postgres`).
+       Reproduced empirically for both forms before writing this fix — see
+       tests/unit/test_db_session_url_normalization.py. psycopg2 was never
+       actually required; this was purely a URL-scheme default.
+    2. Neon (and most managed Postgres UIs) hand out connection strings with
+       `?sslmode=require` — the libpq/psycopg convention. SQLAlchemy's
+       asyncpg dialect reads SSL configuration from a query parameter named
+       `ssl`, not `sslmode`; passed through unchanged, `sslmode` is silently
+       ignored by asyncpg (staging audit §8).
+
+    A no-op (returns the original string unchanged) when neither applies.
+
+    IMPORTANT: reserializes via `render_as_string(hide_password=False)`,
+    never bare `str(url)` — SQLAlchemy's `URL.__str__` masks the password
+    as the literal string `***` (a display-safety default so a URL doesn't
+    leak into logs/tracebacks unmasked), which would silently replace the
+    real password with three literal asterisks in the connection string
+    actually handed to asyncpg the moment this function changes anything.
+    Caught in testing before this ever reached a real deployment — see
+    test_normalize_preserves_the_real_password_never_the_masked_str_form.
     """
     parsed = make_url(url)
-    if "sslmode" not in parsed.query:
-        return url
-    query = dict(parsed.query)
-    query["ssl"] = query.pop("sslmode")
-    return str(parsed.set(query=query))
+    changed = False
+
+    if parsed.drivername in ("postgresql", "postgres"):
+        parsed = parsed.set(drivername="postgresql+asyncpg")
+        changed = True
+
+    if "sslmode" in parsed.query:
+        query = dict(parsed.query)
+        query["ssl"] = query.pop("sslmode")
+        parsed = parsed.set(query=query)
+        changed = True
+
+    return parsed.render_as_string(hide_password=False) if changed else url
 
 
 def get_engine() -> AsyncEngine:
