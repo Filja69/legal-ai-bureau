@@ -1,0 +1,18 @@
+{
+  "case_id": "case_022",
+  "category": "temporal",
+  "question": "Какая редакция статьи 309 действует сейчас (после 2025-01-01)?",
+  "facts": [],
+  "effective_at": "2025-06-01",
+  "expected_status_in": [
+    "completed",
+    "blocked_unverified_claim"
+  ],
+  "expected_citations_any": [
+    "309"
+  ],
+  "expected_new_redaction_phrase": true,
+  "must_not_claim_articles": [
+    "99999"
+  ]
+}

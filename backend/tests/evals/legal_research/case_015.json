@@ -1,0 +1,19 @@
+{
+  "case_id": "case_015",
+  "category": "multi_issue",
+  "question": "Оператор обрабатывает персональные данные без согласия субъекта — какие нормы применимы и есть ли ответственность?",
+  "facts": [],
+  "effective_at": null,
+  "expected_status_in": [
+    "completed",
+    "blocked_unverified_claim"
+  ],
+  "expected_citations_any": [
+    "6",
+    "9"
+  ],
+  "expected_min_issues": 1,
+  "must_not_claim_articles": [
+    "99999"
+  ]
+}

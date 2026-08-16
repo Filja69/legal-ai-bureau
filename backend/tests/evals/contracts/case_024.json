@@ -1,0 +1,11 @@
+{
+  "case_id": "case_024",
+  "category": "missing_clause",
+  "contract_key": null,
+  "custom_text": "1. Предмет\n\n1.1. Стороны обмениваются информацией о потенциальном сотрудничестве.\n",
+  "contract_type": "nda",
+  "expected_risk_types": [
+    "confidentiality_risk"
+  ],
+  "expected_min_severity": null
+}

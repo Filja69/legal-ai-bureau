@@ -1,0 +1,18 @@
+{
+  "case_id": "case_021",
+  "category": "temporal",
+  "question": "Какая редакция статьи 309 действовала на дату 2024-06-01?",
+  "facts": [],
+  "effective_at": "2024-06-01",
+  "expected_status_in": [
+    "completed",
+    "blocked_unverified_claim"
+  ],
+  "expected_citations_any": [
+    "309"
+  ],
+  "expected_new_redaction_phrase": false,
+  "must_not_claim_articles": [
+    "99999"
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "case_id": "case_010",
+  "category": "straightforward",
+  "question": "Возмещаются ли убытки при неисполнении обязательства?",
+  "facts": [],
+  "effective_at": null,
+  "expected_status_in": [
+    "completed",
+    "blocked_unverified_claim"
+  ],
+  "expected_citations_any": [
+    "393"
+  ],
+  "must_not_claim_articles": [
+    "99999"
+  ]
+}

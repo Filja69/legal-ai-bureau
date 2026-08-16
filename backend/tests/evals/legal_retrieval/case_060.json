@@ -1,0 +1,10 @@
+{
+  "case_id": "case_060",
+  "category": "adversarial",
+  "query": "статья 500 ГК РФ об электронных обязательствах",
+  "mode": "hybrid",
+  "top_k": 5,
+  "effective_at": null,
+  "citation_text": "ГК РФ, статья 500",
+  "expected_citation_status": "unverified"
+}

@@ -1,0 +1,12 @@
+{
+  "case_id": "case_036",
+  "category": "multi_concept",
+  "query": "возмещение убытков и уменьшение неустойки судом при явной несоразмерности",
+  "mode": "hybrid",
+  "top_k": 8,
+  "effective_at": null,
+  "expected_articles": [
+    "393",
+    "333"
+  ]
+}

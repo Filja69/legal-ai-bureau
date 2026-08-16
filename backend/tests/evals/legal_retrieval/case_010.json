@@ -1,0 +1,11 @@
+{
+  "case_id": "case_010",
+  "category": "exact_article",
+  "query": "статья 393 ГК РФ возмещение убытков должником",
+  "mode": "hybrid",
+  "top_k": 5,
+  "effective_at": null,
+  "expected_articles": [
+    "393"
+  ]
+}

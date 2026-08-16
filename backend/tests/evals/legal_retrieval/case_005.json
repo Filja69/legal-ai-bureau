@@ -1,0 +1,9 @@
+{
+  "case_id": "case_005",
+  "description": "Case-law query about a unilateral refusal to perform a supply contract surfaces the relevant mock court decision",
+  "query": "односторонний отказ от исполнения договора поставки",
+  "mode": "hybrid",
+  "effective_at": null,
+  "expected_case_numbers": ["А40-000002/2025"],
+  "must_not_return_articles": []
+}

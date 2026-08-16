@@ -1,0 +1,10 @@
+{
+  "case_id": "case_058",
+  "category": "adversarial",
+  "query": "статья 1500 ГК РФ регулирование цифровых финансовых активов",
+  "mode": "hybrid",
+  "top_k": 5,
+  "effective_at": null,
+  "citation_text": "ГК РФ, статья 1500",
+  "expected_citation_status": "unverified"
+}

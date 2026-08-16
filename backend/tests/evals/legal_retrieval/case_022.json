@@ -1,0 +1,11 @@
+{
+  "case_id": "case_022",
+  "category": "semantic_paraphrase",
+  "query": "На какой основе должна происходить обработка персональных данных гражданина?",
+  "mode": "hybrid",
+  "top_k": 5,
+  "effective_at": null,
+  "expected_articles": [
+    "6"
+  ]
+}

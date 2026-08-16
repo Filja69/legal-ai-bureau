@@ -1,0 +1,12 @@
+{
+  "case_id": "case_027",
+  "category": "multi_concept",
+  "query": "ответственность должника и возмещение убытков при ненадлежащем исполнении обязательства",
+  "mode": "hybrid",
+  "top_k": 8,
+  "effective_at": null,
+  "expected_articles": [
+    "401",
+    "393"
+  ]
+}

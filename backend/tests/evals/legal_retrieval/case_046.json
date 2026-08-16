@@ -1,0 +1,11 @@
+{
+  "case_id": "case_046",
+  "category": "court_practice",
+  "query": "отказ в снижении неустойки недоказанность несоразмерности",
+  "mode": "hybrid",
+  "top_k": 5,
+  "effective_at": null,
+  "expected_case_numbers": [
+    "А40-000005/2025"
+  ]
+}

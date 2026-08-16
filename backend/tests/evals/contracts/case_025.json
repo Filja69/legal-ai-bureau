@@ -1,0 +1,11 @@
+{
+  "case_id": "case_025",
+  "category": "missing_clause",
+  "contract_key": null,
+  "custom_text": "1. Предмет\n\n1.1. Исполнитель оказывает консультационные услуги.\n\n2. Оплата\n\n2.1. Заказчик оплачивает услуги ежемесячно.\n",
+  "contract_type": "service",
+  "expected_risk_types": [
+    "dispute_risk"
+  ],
+  "expected_min_severity": null
+}

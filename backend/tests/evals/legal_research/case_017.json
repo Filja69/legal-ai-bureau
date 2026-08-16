@@ -1,0 +1,19 @@
+{
+  "case_id": "case_017",
+  "category": "multi_issue",
+  "question": "Должник ссылается на отсутствие вины, но кредитор требует возмещения убытков по статье об ответственности",
+  "facts": [],
+  "effective_at": null,
+  "expected_status_in": [
+    "completed",
+    "blocked_unverified_claim"
+  ],
+  "expected_citations_any": [
+    "393",
+    "401"
+  ],
+  "expected_min_issues": 1,
+  "must_not_claim_articles": [
+    "99999"
+  ]
+}

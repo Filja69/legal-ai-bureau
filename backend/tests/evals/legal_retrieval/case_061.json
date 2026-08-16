@@ -1,0 +1,10 @@
+{
+  "case_id": "case_061",
+  "category": "adversarial",
+  "query": "статья 314 ГК РФ",
+  "mode": "hybrid",
+  "top_k": 5,
+  "effective_at": null,
+  "citation_text": "ГК РФ, статья 999",
+  "expected_citation_status": "unverified"
+}

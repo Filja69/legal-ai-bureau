@@ -1,0 +1,10 @@
+{
+  "case_id": "case_059",
+  "category": "adversarial",
+  "query": "309-ФЗ статья 12 об исполнении обязательств",
+  "mode": "hybrid",
+  "top_k": 5,
+  "effective_at": null,
+  "citation_text": "309-ФЗ, статья 12",
+  "expected_citation_status": "unverified"
+}

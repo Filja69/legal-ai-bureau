@@ -1,0 +1,16 @@
+{
+  "case_id": "case_028",
+  "category": "conflicting_practice",
+  "question": "суд удовлетворил требования частично взыскание убытков",
+  "facts": [],
+  "effective_at": null,
+  "expected_status_in": [
+    "completed",
+    "blocked_unverified_claim"
+  ],
+  "expected_citations_any": [],
+  "expect_possible_conflict": true,
+  "must_not_claim_articles": [
+    "99999"
+  ]
+}

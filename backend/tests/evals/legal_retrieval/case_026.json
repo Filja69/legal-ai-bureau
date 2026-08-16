@@ -1,0 +1,11 @@
+{
+  "case_id": "case_026",
+  "category": "semantic_paraphrase",
+  "query": "Каким стандартом должно отвечать исполнение договорных обязательств сторонами?",
+  "mode": "hybrid",
+  "top_k": 5,
+  "effective_at": null,
+  "expected_articles": [
+    "309"
+  ]
+}

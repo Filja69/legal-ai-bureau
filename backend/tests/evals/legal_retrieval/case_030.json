@@ -1,0 +1,12 @@
+{
+  "case_id": "case_030",
+  "category": "multi_concept",
+  "query": "срок исполнения обязательства и ответственность за его нарушение",
+  "mode": "hybrid",
+  "top_k": 8,
+  "effective_at": null,
+  "expected_articles": [
+    "314",
+    "401"
+  ]
+}

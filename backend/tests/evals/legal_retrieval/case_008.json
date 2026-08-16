@@ -1,0 +1,11 @@
+{
+  "case_id": "case_008",
+  "category": "exact_article",
+  "query": "статья 310 ГК РФ односторонний отказ от исполнения обязательства",
+  "mode": "hybrid",
+  "top_k": 5,
+  "effective_at": null,
+  "expected_articles": [
+    "310"
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "case_id": "case_006",
+  "category": "straightforward",
+  "question": "На какой основе должна осуществляться обработка персональных данных?",
+  "facts": [],
+  "effective_at": null,
+  "expected_status_in": [
+    "completed",
+    "blocked_unverified_claim"
+  ],
+  "expected_citations_any": [
+    "6"
+  ],
+  "must_not_claim_articles": [
+    "99999"
+  ]
+}

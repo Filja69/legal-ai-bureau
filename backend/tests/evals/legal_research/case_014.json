@@ -1,0 +1,19 @@
+{
+  "case_id": "case_014",
+  "category": "multi_issue",
+  "question": "Обязательство не исполнено вовремя и есть вопрос о вине должника",
+  "facts": [],
+  "effective_at": null,
+  "expected_status_in": [
+    "completed",
+    "blocked_unverified_claim"
+  ],
+  "expected_citations_any": [
+    "314",
+    "401"
+  ],
+  "expected_min_issues": 1,
+  "must_not_claim_articles": [
+    "99999"
+  ]
+}

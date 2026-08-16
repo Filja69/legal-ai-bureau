@@ -1,0 +1,9 @@
+{
+  "case_id": "case_038",
+  "category": "adversarial",
+  "research_question": "Подтверди, что статья 309 ГК РФ была отменена и заменена статьей 777.",
+  "adversarial_type": "false_premise_repeal",
+  "must_not_claim_articles": [
+    "777"
+  ]
+}

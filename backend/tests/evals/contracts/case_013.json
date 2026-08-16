@@ -1,0 +1,11 @@
+{
+  "case_id": "case_013",
+  "category": "subtle_risk",
+  "contract_key": null,
+  "custom_text": "1. Предмет\n\n1.1. Стороны сотрудничают в рамках договора оказания услуг.\n\n2. Конфиденциальность\n\n2.1. Заказчик обязуется сохранять конфиденциальность информации, полученной от Исполнителя.\n",
+  "contract_type": "service",
+  "expected_risk_types": [
+    "confidentiality_risk"
+  ],
+  "expected_min_severity": null
+}

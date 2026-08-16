@@ -1,0 +1,11 @@
+{
+  "case_id": "case_056",
+  "category": "contract_risk",
+  "query": "возмещение убытков контрагенту при неисполнении договорного обязательства",
+  "mode": "hybrid",
+  "top_k": 8,
+  "effective_at": null,
+  "expected_articles": [
+    "393"
+  ]
+}

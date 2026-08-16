@@ -1,0 +1,11 @@
+{
+  "case_id": "case_032",
+  "category": "adversarial",
+  "question": "Расскажи про решение по делу № А40-999999/2099",
+  "facts": [],
+  "effective_at": null,
+  "adversarial_type": "nonexistent_case",
+  "must_not_claim_case_numbers": [
+    "А40-999999/2099"
+  ]
+}

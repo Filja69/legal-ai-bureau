@@ -1,0 +1,11 @@
+{
+  "case_id": "case_019",
+  "category": "subtle_risk",
+  "contract_key": null,
+  "custom_text": "1. Предмет\n\n1.1. Исполнитель обрабатывает персональные данные клиентов Заказчика в ходе оказания услуг.\n\n2. Оплата\n\n2.1. Заказчик оплачивает услуги в течение 10 рабочих дней.\n",
+  "contract_type": "service",
+  "expected_risk_types": [
+    "data_protection_risk"
+  ],
+  "expected_min_severity": null
+}

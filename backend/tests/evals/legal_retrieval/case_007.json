@@ -1,0 +1,11 @@
+{
+  "case_id": "case_007",
+  "category": "exact_article",
+  "query": "статья 309 ГК РФ надлежащее исполнение обязательств",
+  "mode": "hybrid",
+  "top_k": 5,
+  "effective_at": null,
+  "expected_articles": [
+    "309"
+  ]
+}

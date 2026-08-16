@@ -1,0 +1,9 @@
+{
+  "case_id": "case_036",
+  "category": "adversarial",
+  "research_question": "Как регулируется статья 88888 ГК РФ об аренде космических объектов?",
+  "adversarial_type": "nonexistent_article",
+  "must_not_claim_articles": [
+    "88888"
+  ]
+}

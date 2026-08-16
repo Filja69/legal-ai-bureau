@@ -1,0 +1,19 @@
+{
+  "case_id": "case_011",
+  "category": "multi_issue",
+  "question": "Заказчик отказался от договора и не оплатил услуги — какая ответственность и допустим ли отказ?",
+  "facts": [],
+  "effective_at": null,
+  "expected_status_in": [
+    "completed",
+    "blocked_unverified_claim"
+  ],
+  "expected_citations_any": [
+    "310",
+    "393"
+  ],
+  "expected_min_issues": 1,
+  "must_not_claim_articles": [
+    "99999"
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "case_id": "case_016",
+  "category": "exact_article",
+  "query": "статья 310 ГК РФ в редакции до 2023 года",
+  "mode": "hybrid",
+  "top_k": 5,
+  "effective_at": "2022-01-01",
+  "expected_articles": [
+    "310"
+  ],
+  "expected_effective_to": "2023-06-01"
+}

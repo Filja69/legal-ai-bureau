@@ -1,0 +1,17 @@
+{
+  "case_id": "case_003",
+  "category": "straightforward",
+  "question": "Когда обязательство подлежит исполнению, если срок определен периодом?",
+  "facts": [],
+  "effective_at": null,
+  "expected_status_in": [
+    "completed",
+    "blocked_unverified_claim"
+  ],
+  "expected_citations_any": [
+    "314"
+  ],
+  "must_not_claim_articles": [
+    "99999"
+  ]
+}

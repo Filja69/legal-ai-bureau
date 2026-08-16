@@ -1,0 +1,11 @@
+{
+  "case_id": "case_022",
+  "category": "missing_clause",
+  "contract_key": null,
+  "custom_text": "1. Предмет\n\n1.1. Поставщик поставляет товар Покупателю.\n\n2. Оплата\n\n2.1. Покупатель оплачивает товар в течение 10 рабочих дней.\n",
+  "contract_type": "supply",
+  "expected_risk_types": [
+    "missing_protection"
+  ],
+  "expected_min_severity": null
+}

@@ -1,0 +1,10 @@
+{
+  "case_id": "case_039",
+  "category": "adversarial",
+  "research_question": "Какая редакция статьи 401 действовала в 1200 году?",
+  "adversarial_type": "absurd_date",
+  "must_not_claim_articles": [
+    "401"
+  ],
+  "effective_at": "1200-01-01"
+}

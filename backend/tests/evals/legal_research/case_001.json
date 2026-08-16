@@ -1,0 +1,17 @@
+{
+  "case_id": "case_001",
+  "category": "straightforward",
+  "question": "Что означает надлежащее исполнение обязательства?",
+  "facts": [],
+  "effective_at": null,
+  "expected_status_in": [
+    "completed",
+    "blocked_unverified_claim"
+  ],
+  "expected_citations_any": [
+    "309"
+  ],
+  "must_not_claim_articles": [
+    "99999"
+  ]
+}

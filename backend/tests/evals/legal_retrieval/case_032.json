@@ -1,0 +1,11 @@
+{
+  "case_id": "case_032",
+  "category": "multi_concept",
+  "query": "неустойка за нарушение обязательства и её уменьшение судом",
+  "mode": "hybrid",
+  "top_k": 8,
+  "effective_at": null,
+  "expected_articles": [
+    "333"
+  ]
+}

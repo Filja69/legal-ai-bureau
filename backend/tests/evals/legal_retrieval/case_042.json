@@ -1,0 +1,11 @@
+{
+  "case_id": "case_042",
+  "category": "court_practice",
+  "query": "взыскание задолженности по договору оказания услуг ненадлежащее исполнение",
+  "mode": "hybrid",
+  "top_k": 5,
+  "effective_at": null,
+  "expected_case_numbers": [
+    "А40-000001/2025"
+  ]
+}

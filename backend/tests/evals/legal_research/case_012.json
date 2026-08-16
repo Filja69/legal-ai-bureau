@@ -1,0 +1,19 @@
+{
+  "case_id": "case_012",
+  "category": "multi_issue",
+  "question": "Исполнитель нарушил срок и обязательство исполнено ненадлежащим образом — что применимо?",
+  "facts": [],
+  "effective_at": null,
+  "expected_status_in": [
+    "completed",
+    "blocked_unverified_claim"
+  ],
+  "expected_citations_any": [
+    "314",
+    "401"
+  ],
+  "expected_min_issues": 1,
+  "must_not_claim_articles": [
+    "99999"
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "case_id": "case_014",
+  "category": "subtle_risk",
+  "contract_key": null,
+  "custom_text": "1. Предмет\n\n1.1. Исполнитель оказывает услуги Заказчику.\n\n2. Разрешение споров\n\n2.1. Споры передаются на рассмотрение в Лондонский международный третейский суд.\n",
+  "contract_type": "service",
+  "expected_risk_types": [
+    "jurisdiction_risk"
+  ],
+  "expected_min_severity": null
+}

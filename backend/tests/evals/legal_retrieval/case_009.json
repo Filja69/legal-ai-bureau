@@ -1,0 +1,11 @@
+{
+  "case_id": "case_009",
+  "category": "exact_article",
+  "query": "статья 314 ГК РФ срок исполнения обязательства",
+  "mode": "hybrid",
+  "top_k": 5,
+  "effective_at": null,
+  "expected_articles": [
+    "314"
+  ]
+}

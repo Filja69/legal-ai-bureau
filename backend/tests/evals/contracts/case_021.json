@@ -1,0 +1,11 @@
+{
+  "case_id": "case_021",
+  "category": "missing_clause",
+  "contract_key": null,
+  "custom_text": "1. Предмет\n\n1.1. Исполнитель оказывает услуги Заказчику за плату.\n",
+  "contract_type": "service",
+  "expected_risk_types": [
+    "missing_protection"
+  ],
+  "expected_min_severity": null
+}

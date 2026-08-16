@@ -1,0 +1,13 @@
+-- Row-level security tightening — TODO(Phase 2), see LEGAL-SECURITY.md §2.
+--
+-- migrations/versions/0001_initial_schema.py enables RLS on every tenant
+-- table with a permissive `USING (true)` policy so local dev isn't broken
+-- before app/db/session.py's workspace_scoped_session() is wired into every
+-- request path. Once that wiring lands, replace each policy below with:
+--
+--   DROP POLICY IF EXISTS <table>_tenant_isolation ON <table>;
+--   CREATE POLICY <table>_tenant_isolation ON <table>
+--     USING (workspace_id = current_setting('app.current_workspace_id', true)::uuid);
+--
+-- Apply to: cases, documents, evidence, legal_issues, legal_risks, and any
+-- tenant table added afterward (contracts, companies, research reports, ...).

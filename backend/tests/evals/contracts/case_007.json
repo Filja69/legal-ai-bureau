@@ -1,0 +1,11 @@
+{
+  "case_id": "case_007",
+  "category": "obvious_risk",
+  "contract_key": "license_agreement",
+  "custom_text": null,
+  "contract_type": null,
+  "expected_risk_types": [
+    "one_sided_termination"
+  ],
+  "expected_min_severity": null
+}

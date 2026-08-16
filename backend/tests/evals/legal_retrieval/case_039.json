@@ -1,0 +1,12 @@
+{
+  "case_id": "case_039",
+  "category": "temporal",
+  "query": "односторонний отказ от исполнения обязательства",
+  "mode": "hybrid",
+  "top_k": 3,
+  "effective_at": "2022-01-01",
+  "expected_articles": [
+    "310"
+  ],
+  "expected_effective_to": "2023-06-01"
+}

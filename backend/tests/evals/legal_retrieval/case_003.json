@@ -1,0 +1,11 @@
+{
+  "case_id": "case_003",
+  "description": "Temporal: query for ст. 309 at a date before the 2025 amendment must resolve the OLD redaction",
+  "query": "надлежащим образом",
+  "mode": "hybrid",
+  "effective_at": "2024-06-01",
+  "expected_articles": ["309"],
+  "expected_sources": ["ГК РФ"],
+  "expected_effective_to": "2025-01-01",
+  "must_not_return_articles": []
+}

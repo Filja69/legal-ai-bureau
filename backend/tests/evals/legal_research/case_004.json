@@ -1,0 +1,17 @@
+{
+  "case_id": "case_004",
+  "category": "straightforward",
+  "question": "Обязан ли должник возместить убытки при ненадлежащем исполнении?",
+  "facts": [],
+  "effective_at": null,
+  "expected_status_in": [
+    "completed",
+    "blocked_unverified_claim"
+  ],
+  "expected_citations_any": [
+    "393"
+  ],
+  "must_not_claim_articles": [
+    "99999"
+  ]
+}

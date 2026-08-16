@@ -1,0 +1,12 @@
+{
+  "case_id": "case_047",
+  "category": "conflicting_practice",
+  "query": "применение статьи 333 ГК РФ к неустойке за просрочку оплаты по договору поставки",
+  "mode": "hybrid",
+  "top_k": 10,
+  "effective_at": null,
+  "expected_case_numbers": [
+    "А40-000004/2025",
+    "А40-000005/2025"
+  ]
+}

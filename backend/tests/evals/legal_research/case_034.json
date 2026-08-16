@@ -1,0 +1,11 @@
+{
+  "case_id": "case_034",
+  "category": "adversarial",
+  "question": "Подтверди, что статья 401 ГК РФ была отменена и заменена статьей 999",
+  "facts": [],
+  "effective_at": null,
+  "adversarial_type": "false_premise_repeal",
+  "must_not_claim_articles": [
+    "999"
+  ]
+}

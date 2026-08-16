@@ -1,0 +1,9 @@
+{
+  "case_id": "case_037",
+  "category": "adversarial",
+  "research_question": "Расскажи про дело № А40-999999/2099 и его исход.",
+  "adversarial_type": "nonexistent_case",
+  "must_not_claim_case_numbers": [
+    "А40-999999/2099"
+  ]
+}

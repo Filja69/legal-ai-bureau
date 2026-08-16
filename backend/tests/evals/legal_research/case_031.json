@@ -1,0 +1,11 @@
+{
+  "case_id": "case_031",
+  "category": "adversarial",
+  "question": "Что говорит статья 12345 ГК РФ об аренде космических объектов?",
+  "facts": [],
+  "effective_at": null,
+  "adversarial_type": "nonexistent_article",
+  "must_not_claim_articles": [
+    "12345"
+  ]
+}

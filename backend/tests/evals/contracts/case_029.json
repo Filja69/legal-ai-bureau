@@ -1,0 +1,11 @@
+{
+  "case_id": "case_029",
+  "category": "one_sided_clause",
+  "contract_key": null,
+  "custom_text": "1. Предмет\n\n1.1. Арендодатель предоставляет помещение в аренду.\n\n2. Расторжение\n\n2.1. Арендодатель вправе отказаться от исполнения договора в любое время без уведомления и без объяснения причин.\n",
+  "contract_type": "lease",
+  "expected_risk_types": [
+    "one_sided_termination"
+  ],
+  "expected_min_severity": null
+}

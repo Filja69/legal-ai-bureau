@@ -1,0 +1,12 @@
+{
+  "case_id": "case_041",
+  "category": "temporal",
+  "query": "обычаями делового оборота исполнение обязательства",
+  "mode": "hybrid",
+  "top_k": 3,
+  "effective_at": "2025-06-01",
+  "expected_articles": [
+    "309"
+  ],
+  "expected_effective_to": null
+}

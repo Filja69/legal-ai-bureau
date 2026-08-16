@@ -1,0 +1,11 @@
+{
+  "case_id": "case_030",
+  "category": "one_sided_clause",
+  "contract_key": null,
+  "custom_text": "1. Предмет\n\n1.1. Стороны сотрудничают в рамках договора.\n\n2. Конфиденциальность\n\n2.1. Исполнитель обязуется сохранять конфиденциальность информации, полученной от Заказчика.\n",
+  "contract_type": "service",
+  "expected_risk_types": [
+    "confidentiality_risk"
+  ],
+  "expected_min_severity": null
+}

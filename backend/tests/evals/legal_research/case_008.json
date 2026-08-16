@@ -1,0 +1,17 @@
+{
+  "case_id": "case_008",
+  "category": "straightforward",
+  "question": "Что грозит должнику, не исполнившему обязательство надлежащим образом?",
+  "facts": [],
+  "effective_at": null,
+  "expected_status_in": [
+    "completed",
+    "blocked_unverified_claim"
+  ],
+  "expected_citations_any": [
+    "401"
+  ],
+  "must_not_claim_articles": [
+    "99999"
+  ]
+}

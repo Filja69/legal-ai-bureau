@@ -1,0 +1,11 @@
+{
+  "case_id": "case_054",
+  "category": "contract_risk",
+  "query": "правомерность одностороннего отказа стороны от исполнения договора",
+  "mode": "hybrid",
+  "top_k": 8,
+  "effective_at": null,
+  "expected_articles": [
+    "310"
+  ]
+}

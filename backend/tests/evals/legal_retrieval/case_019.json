@@ -1,0 +1,11 @@
+{
+  "case_id": "case_019",
+  "category": "semantic_paraphrase",
+  "query": "Когда наступает срок исполнения, если договор определяет лишь период, а не точный день?",
+  "mode": "hybrid",
+  "top_k": 5,
+  "effective_at": null,
+  "expected_articles": [
+    "314"
+  ]
+}

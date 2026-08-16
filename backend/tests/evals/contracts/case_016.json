@@ -1,0 +1,11 @@
+{
+  "case_id": "case_016",
+  "category": "subtle_risk",
+  "contract_key": null,
+  "custom_text": "1. Предмет\n\n1.1. Исполнитель оказывает услуги Заказчику.\n\n2. Оплата\n\n2.1. Заказчик осуществляет 100% предоплату услуг до начала их оказания.\n",
+  "contract_type": "service",
+  "expected_risk_types": [
+    "payment_risk"
+  ],
+  "expected_min_severity": null
+}

@@ -1,0 +1,17 @@
+{
+  "case_id": "case_002",
+  "category": "straightforward",
+  "question": "Допускается ли односторонний отказ от исполнения обязательства?",
+  "facts": [],
+  "effective_at": null,
+  "expected_status_in": [
+    "completed",
+    "blocked_unverified_claim"
+  ],
+  "expected_citations_any": [
+    "310"
+  ],
+  "must_not_claim_articles": [
+    "99999"
+  ]
+}

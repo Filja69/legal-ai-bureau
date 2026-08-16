@@ -1,0 +1,11 @@
+{
+  "case_id": "case_028",
+  "category": "one_sided_clause",
+  "contract_key": null,
+  "custom_text": "1. Предмет\n\n1.1. Лицензиар предоставляет лицензию.\n\n2. Ответственность сторон\n\n2.1. Ответственность Лицензиара перед Лицензиатом не ограничивается и наступает в полном объеме, включая косвенные убытки.\n",
+  "contract_type": "license",
+  "expected_risk_types": [
+    "unlimited_liability"
+  ],
+  "expected_min_severity": null
+}

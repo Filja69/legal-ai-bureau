@@ -1,0 +1,12 @@
+{
+  "case_id": "case_015",
+  "category": "exact_article",
+  "query": "статья 309 ГК РФ в редакции 2024 года",
+  "mode": "hybrid",
+  "top_k": 5,
+  "effective_at": "2024-06-01",
+  "expected_articles": [
+    "309"
+  ],
+  "expected_effective_to": "2025-01-01"
+}

@@ -1,0 +1,11 @@
+{
+  "case_id": "case_017",
+  "category": "semantic_paraphrase",
+  "query": "Должны ли обязательства исполняться в точном соответствии с условиями договора и требованиями закона?",
+  "mode": "hybrid",
+  "top_k": 5,
+  "effective_at": null,
+  "expected_articles": [
+    "309"
+  ]
+}

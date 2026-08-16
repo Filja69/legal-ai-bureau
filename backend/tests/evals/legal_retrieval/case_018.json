@@ -1,0 +1,11 @@
+{
+  "case_id": "case_018",
+  "category": "semantic_paraphrase",
+  "query": "Вправе ли сторона в любой момент прекратить исполнение обязательства по своей воле?",
+  "mode": "hybrid",
+  "top_k": 5,
+  "effective_at": null,
+  "expected_articles": [
+    "310"
+  ]
+}

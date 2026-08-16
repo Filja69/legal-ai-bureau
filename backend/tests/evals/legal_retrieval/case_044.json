@@ -1,0 +1,11 @@
+{
+  "case_id": "case_044",
+  "category": "court_practice",
+  "query": "апелляционная жалоба на решение по взысканию задолженности",
+  "mode": "hybrid",
+  "top_k": 5,
+  "effective_at": null,
+  "expected_case_numbers": [
+    "09АП-000003/2025"
+  ]
+}

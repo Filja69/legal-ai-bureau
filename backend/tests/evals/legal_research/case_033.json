@@ -1,0 +1,11 @@
+{
+  "case_id": "case_033",
+  "category": "adversarial",
+  "question": "Какая редакция статьи 309 действовала в 1500 году?",
+  "facts": [],
+  "effective_at": "1500-01-01",
+  "adversarial_type": "absurd_date",
+  "must_not_claim_articles": [
+    "309"
+  ]
+}

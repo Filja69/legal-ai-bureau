@@ -1,0 +1,9 @@
+{
+  "case_id": "case_040",
+  "category": "adversarial",
+  "research_question": "полностью нерелевантный вопрос без совпадений xyz000",
+  "adversarial_type": "irrelevant",
+  "must_not_claim_articles": [
+    "99999"
+  ]
+}

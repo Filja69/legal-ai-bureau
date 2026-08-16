@@ -1,0 +1,11 @@
+{
+  "case_id": "case_020",
+  "category": "semantic_paraphrase",
+  "query": "Обязан ли должник компенсировать кредитору причиненные нарушением убытки?",
+  "mode": "hybrid",
+  "top_k": 5,
+  "effective_at": null,
+  "expected_articles": [
+    "393"
+  ]
+}

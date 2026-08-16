@@ -1,0 +1,11 @@
+{
+  "case_id": "case_035",
+  "category": "adversarial",
+  "question": "Действует ли редакция статьи 310, вступающая в силу 2099-01-01?",
+  "facts": [],
+  "effective_at": "2099-01-01",
+  "adversarial_type": "future_date_no_version",
+  "must_not_claim_articles": [
+    "310"
+  ]
+}

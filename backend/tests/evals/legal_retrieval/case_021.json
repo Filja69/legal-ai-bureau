@@ -1,0 +1,11 @@
+{
+  "case_id": "case_021",
+  "category": "semantic_paraphrase",
+  "query": "При каких условиях лицо несет ответственность за неисполнение обязательства — нужна ли вина?",
+  "mode": "hybrid",
+  "top_k": 5,
+  "effective_at": null,
+  "expected_articles": [
+    "401"
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "case_id": "case_052",
+  "category": "contract_risk",
+  "query": "ограничение договорной ответственности сторон надлежащее исполнение обязательства",
+  "mode": "hybrid",
+  "top_k": 8,
+  "effective_at": null,
+  "expected_articles": [
+    "309",
+    "401"
+  ]
+}

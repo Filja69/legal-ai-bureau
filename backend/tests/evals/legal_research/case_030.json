@@ -1,0 +1,16 @@
+{
+  "case_id": "case_030",
+  "category": "conflicting_practice",
+  "question": "апелляционная жалоба решение суда первой инстанции",
+  "facts": [],
+  "effective_at": null,
+  "expected_status_in": [
+    "completed",
+    "blocked_unverified_claim"
+  ],
+  "expected_citations_any": [],
+  "expect_possible_conflict": true,
+  "must_not_claim_articles": [
+    "99999"
+  ]
+}

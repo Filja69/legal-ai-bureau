@@ -1,0 +1,11 @@
+{
+  "case_id": "case_055",
+  "category": "contract_risk",
+  "query": "несоразмерность договорной неустойки последствиям нарушения обязательства",
+  "mode": "hybrid",
+  "top_k": 8,
+  "effective_at": null,
+  "expected_articles": [
+    "333"
+  ]
+}

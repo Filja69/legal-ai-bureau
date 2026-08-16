@@ -1,0 +1,11 @@
+{
+  "case_id": "case_045",
+  "category": "court_practice",
+  "query": "снижение неустойки судом за просрочку оплаты по договору поставки",
+  "mode": "hybrid",
+  "top_k": 5,
+  "effective_at": null,
+  "expected_case_numbers": [
+    "А40-000004/2025"
+  ]
+}

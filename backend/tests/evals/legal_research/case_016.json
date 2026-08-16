@@ -1,0 +1,19 @@
+{
+  "case_id": "case_016",
+  "category": "multi_issue",
+  "question": "Заказчик направил уведомление об отказе, но услуги уже частично оказаны надлежащим образом",
+  "facts": [],
+  "effective_at": null,
+  "expected_status_in": [
+    "completed",
+    "blocked_unverified_claim"
+  ],
+  "expected_citations_any": [
+    "309",
+    "310"
+  ],
+  "expected_min_issues": 1,
+  "must_not_claim_articles": [
+    "99999"
+  ]
+}

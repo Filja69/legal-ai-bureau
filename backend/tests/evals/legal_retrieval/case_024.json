@@ -1,0 +1,11 @@
+{
+  "case_id": "case_024",
+  "category": "semantic_paraphrase",
+  "query": "Может ли суд снизить размер неустойки, если она явно несоразмерна последствиям нарушения?",
+  "mode": "hybrid",
+  "top_k": 5,
+  "effective_at": null,
+  "expected_articles": [
+    "333"
+  ]
+}

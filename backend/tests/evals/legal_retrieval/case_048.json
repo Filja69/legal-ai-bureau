@@ -1,0 +1,11 @@
+{
+  "case_id": "case_048",
+  "category": "conflicting_practice",
+  "query": "снижение неустойки судом по договору поставки",
+  "mode": "hybrid",
+  "top_k": 10,
+  "effective_at": null,
+  "expected_case_numbers": [
+    "А40-000004/2025"
+  ]
+}

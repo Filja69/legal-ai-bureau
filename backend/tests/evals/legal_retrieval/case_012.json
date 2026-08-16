@@ -1,0 +1,11 @@
+{
+  "case_id": "case_012",
+  "category": "exact_article",
+  "query": "статья 6 152-ФЗ законная и справедливая основа обработки персональных данных",
+  "mode": "hybrid",
+  "top_k": 5,
+  "effective_at": null,
+  "expected_articles": [
+    "6"
+  ]
+}

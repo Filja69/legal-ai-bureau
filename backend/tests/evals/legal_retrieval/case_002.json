@@ -1,0 +1,11 @@
+{
+  "case_id": "case_002",
+  "description": "Query using words actually present in ст. 310's mock text ranks it at the top over an unrelated privacy-law article",
+  "query": "односторонний отказ от исполнения обязательства",
+  "mode": "hybrid",
+  "top_k": 3,
+  "effective_at": null,
+  "expected_articles": ["310"],
+  "expected_sources": ["ГК РФ"],
+  "must_not_return_articles": ["9"]
+}

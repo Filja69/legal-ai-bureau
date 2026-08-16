@@ -1,0 +1,17 @@
+{
+  "case_id": "case_005",
+  "category": "straightforward",
+  "question": "Несет ли лицо ответственность за неисполнение обязательства без вины?",
+  "facts": [],
+  "effective_at": null,
+  "expected_status_in": [
+    "completed",
+    "blocked_unverified_claim"
+  ],
+  "expected_citations_any": [
+    "401"
+  ],
+  "must_not_claim_articles": [
+    "99999"
+  ]
+}

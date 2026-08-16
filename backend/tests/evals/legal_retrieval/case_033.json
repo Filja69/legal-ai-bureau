@@ -1,0 +1,12 @@
+{
+  "case_id": "case_033",
+  "category": "multi_concept",
+  "query": "неустойка и убытки как последствия нарушения обязательства",
+  "mode": "hybrid",
+  "top_k": 8,
+  "effective_at": null,
+  "expected_articles": [
+    "333",
+    "393"
+  ]
+}

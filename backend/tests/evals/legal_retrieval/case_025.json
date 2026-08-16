@@ -1,0 +1,11 @@
+{
+  "case_id": "case_025",
+  "category": "semantic_paraphrase",
+  "query": "Допустим ли отказ от исполнения договора в одностороннем порядке вне предусмотренных законом случаев?",
+  "mode": "hybrid",
+  "top_k": 5,
+  "effective_at": null,
+  "expected_articles": [
+    "310"
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "case_id": "case_006",
+  "category": "obvious_risk",
+  "contract_key": "nda",
+  "custom_text": null,
+  "contract_type": null,
+  "expected_risk_types": [
+    "missing_protection"
+  ],
+  "expected_min_severity": null
+}

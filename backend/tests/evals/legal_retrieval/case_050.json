@@ -1,0 +1,12 @@
+{
+  "case_id": "case_050",
+  "category": "conflicting_practice",
+  "query": "противоречивая практика применения статьи 333 ГК РФ к неустойке по договорам поставки",
+  "mode": "hybrid",
+  "top_k": 10,
+  "effective_at": null,
+  "expected_case_numbers": [
+    "А40-000004/2025",
+    "А40-000005/2025"
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "case_id": "case_018",
+  "category": "multi_issue",
+  "question": "Согласие на обработку персональных данных не было получено на законной основе",
+  "facts": [],
+  "effective_at": null,
+  "expected_status_in": [
+    "completed",
+    "blocked_unverified_claim"
+  ],
+  "expected_citations_any": [
+    "6",
+    "9"
+  ],
+  "expected_min_issues": 1,
+  "must_not_claim_articles": [
+    "99999"
+  ]
+}

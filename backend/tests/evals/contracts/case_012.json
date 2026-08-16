@@ -1,0 +1,11 @@
+{
+  "case_id": "case_012",
+  "category": "subtle_risk",
+  "contract_key": null,
+  "custom_text": "1. Предмет\n\n1.1. Исполнитель оказывает услуги Заказчику.\n\n2. Неустойка\n\n2.1. В случае нарушения сроков Заказчик уплачивает Исполнителю неустойку в размере 1% от суммы договора за каждый день просрочки.\n",
+  "contract_type": "service",
+  "expected_risk_types": [
+    "penalty_risk"
+  ],
+  "expected_min_severity": null
+}

@@ -1,0 +1,14 @@
+{
+  "case_id": "case_051",
+  "category": "conflicting_practice",
+  "query": "явная несоразмерность неустойки последствиям нарушения обязательства статья 333",
+  "mode": "hybrid",
+  "top_k": 10,
+  "effective_at": null,
+  "expected_articles": [
+    "333"
+  ],
+  "expected_case_numbers": [
+    "А40-000004/2025"
+  ]
+}

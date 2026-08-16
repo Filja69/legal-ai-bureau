@@ -1,0 +1,11 @@
+{
+  "case_id": "case_023",
+  "category": "semantic_paraphrase",
+  "query": "Нужно ли свободное и добровольное согласие человека на обработку его персональных данных?",
+  "mode": "hybrid",
+  "top_k": 5,
+  "effective_at": null,
+  "expected_articles": [
+    "9"
+  ]
+}

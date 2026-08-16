@@ -1,0 +1,17 @@
+{
+  "case_id": "case_007",
+  "category": "straightforward",
+  "question": "Как субъект персональных данных дает согласие на их обработку?",
+  "facts": [],
+  "effective_at": null,
+  "expected_status_in": [
+    "completed",
+    "blocked_unverified_claim"
+  ],
+  "expected_citations_any": [
+    "9"
+  ],
+  "must_not_claim_articles": [
+    "99999"
+  ]
+}

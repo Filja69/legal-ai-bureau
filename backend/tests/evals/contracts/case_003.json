@@ -1,0 +1,11 @@
+{
+  "case_id": "case_003",
+  "category": "obvious_risk",
+  "contract_key": "supply_agreement",
+  "custom_text": null,
+  "contract_type": null,
+  "expected_risk_types": [
+    "unlimited_liability"
+  ],
+  "expected_min_severity": null
+}

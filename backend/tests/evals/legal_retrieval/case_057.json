@@ -1,0 +1,10 @@
+{
+  "case_id": "case_057",
+  "category": "adversarial",
+  "query": "статья 999 ГК РФ об ответственности за нарушение цифровых обязательств",
+  "mode": "hybrid",
+  "top_k": 5,
+  "effective_at": null,
+  "citation_text": "ГК РФ, статья 999",
+  "expected_citation_status": "unverified"
+}

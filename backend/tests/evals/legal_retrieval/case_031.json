@@ -1,0 +1,12 @@
+{
+  "case_id": "case_031",
+  "category": "multi_concept",
+  "query": "убытки кредитора и вина должника как условие ответственности",
+  "mode": "hybrid",
+  "top_k": 8,
+  "effective_at": null,
+  "expected_articles": [
+    "393",
+    "401"
+  ]
+}

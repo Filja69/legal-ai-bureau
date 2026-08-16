@@ -1,0 +1,12 @@
+{
+  "case_id": "case_034",
+  "category": "multi_concept",
+  "query": "законность обработки персональных данных и надлежащее исполнение обязательств оператором",
+  "mode": "hybrid",
+  "top_k": 8,
+  "effective_at": null,
+  "expected_articles": [
+    "6",
+    "309"
+  ]
+}

@@ -1,0 +1,6 @@
+{
+  "case_id": "case_006",
+  "description": "Citation verification: a correct citation against the mock dataset resolves to MOCK (not VERIFIED, since the source is a mock dataset — LEGAL-RAG.md §4)",
+  "citation_text": "ГК РФ, статья 314",
+  "expected_citation_status": "mock"
+}

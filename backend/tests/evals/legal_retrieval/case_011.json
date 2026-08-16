@@ -1,0 +1,11 @@
+{
+  "case_id": "case_011",
+  "category": "exact_article",
+  "query": "статья 401 ГК РФ ответственность за неисполнение обязательства",
+  "mode": "hybrid",
+  "top_k": 5,
+  "effective_at": null,
+  "expected_articles": [
+    "401"
+  ]
+}

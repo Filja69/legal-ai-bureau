@@ -1,0 +1,12 @@
+{
+  "case_id": "case_029",
+  "category": "multi_concept",
+  "query": "обработка персональных данных и согласие субъекта на такую обработку",
+  "mode": "hybrid",
+  "top_k": 8,
+  "effective_at": null,
+  "expected_articles": [
+    "6",
+    "9"
+  ]
+}
