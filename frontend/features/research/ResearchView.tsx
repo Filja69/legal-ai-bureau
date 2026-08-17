@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { runResearch } from "@/api/legal";
@@ -11,7 +12,12 @@ import { ResearchResult } from "./ResearchResult";
 
 export function ResearchView() {
   const { workspaceId } = useAuth();
-  const [question, setQuestion] = useState("");
+  const searchParams = useSearchParams();
+  // Prefill from the Assistant composer's honest routing (?q=...) — never
+  // auto-submitted: a question this expensive (real fact extraction +
+  // retrieval + IRAC reasoning) should only ever run when the user
+  // deliberately confirms it, not the instant they land on the page.
+  const [question, setQuestion] = useState(searchParams.get("q") ?? "");
   const [effectiveAt, setEffectiveAt] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);

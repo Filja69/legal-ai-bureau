@@ -16,7 +16,7 @@ describe("StagingBanner", () => {
   it("renders the honest test-environment notice when explicitly enabled", () => {
     vi.stubEnv("NEXT_PUBLIC_STAGING_BANNER", "true");
     render(<StagingBanner />);
-    expect(screen.getByText(/TEST ENVIRONMENT/)).toBeInTheDocument();
-    expect(screen.getByText(/mock or unverified/)).toBeInTheDocument();
+    expect(screen.getByText(/ТЕСТОВАЯ СРЕДА/)).toBeInTheDocument();
+    expect(screen.getByText(/Не загружайте конфиденциальные данные/)).toBeInTheDocument();
   });
 });

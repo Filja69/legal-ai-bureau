@@ -22,7 +22,7 @@ export function ContractsView() {
     try {
       setContracts(await listContracts(workspaceId));
     } catch {
-      setError("Could not load contracts — is the backend running?");
+      setError("Не удалось загрузить договоры — backend доступен?");
     }
   }
 
@@ -41,30 +41,30 @@ export function ContractsView() {
       setRawText("");
       await refresh();
     } catch {
-      setError("Upload failed.");
+      setError("Загрузка не удалась.");
     } finally {
       setUploading(false);
     }
   }
 
   if (!workspaceId) {
-    return <div className="p-8 text-sm text-slate-500">Select a workspace to view contracts.</div>;
+    return <div className="p-8 text-sm text-slate-500">Выберите рабочее пространство, чтобы увидеть договоры.</div>;
   }
 
   return (
-    <div className="mx-auto max-w-3xl p-8">
-      <h1 className="text-2xl font-semibold">Contracts</h1>
+    <div className="mx-auto max-w-3xl p-4 sm:p-8">
+      <h1 className="text-2xl font-semibold">Договоры</h1>
       <p className="mt-1 text-sm text-slate-400">
-        Contract Intelligence — clause extraction, risk detection, Legal Research-verified findings,
-        two-lawyer review, redline. No PDF/DOCX parsing yet — paste plain text.
+        Анализ договоров — извлечение условий, поиск рисков, проверка через Юридическое исследование,
+        двойная проверка юристами, редлайн. Разбор PDF/DOCX пока не поддерживается — вставьте текст.
       </p>
 
       <div className="mt-6 space-y-3 rounded border border-slate-800 p-4">
-        <h2 className="text-sm font-medium text-slate-300">Upload Contract</h2>
+        <h2 className="text-sm font-medium text-slate-300">Добавить договор</h2>
         <input
           value={title}
           onChange={(e) => setTitle(e.target.value)}
-          placeholder="Title"
+          placeholder="Название"
           className="w-full rounded border border-slate-700 bg-slate-900 p-2 text-sm"
         />
         <select
@@ -81,25 +81,25 @@ export function ContractsView() {
         <textarea
           value={rawText}
           onChange={(e) => setRawText(e.target.value)}
-          placeholder="Paste contract text"
+          placeholder="Вставьте текст договора"
           rows={8}
           className="w-full rounded border border-slate-700 bg-slate-900 p-2 text-sm"
         />
         <button
           onClick={handleUpload}
           disabled={uploading || !title.trim() || !rawText.trim()}
-          className="rounded bg-slate-700 px-4 py-2 text-sm font-medium hover:bg-slate-600 disabled:opacity-50"
+          className="w-full rounded bg-slate-700 px-4 py-2 text-sm font-medium hover:bg-slate-600 disabled:opacity-50 sm:w-auto"
         >
-          {uploading ? "Uploading..." : "Upload Contract"}
+          {uploading ? "Загрузка..." : "Загрузить договор"}
         </button>
       </div>
 
       {error && <p className="mt-4 text-sm text-red-400">{error}</p>}
 
       <section className="mt-8">
-        <h2 className="text-lg font-medium">Recent Contracts</h2>
-        {contracts === null && <p className="mt-2 text-sm text-slate-500">Loading…</p>}
-        {contracts?.length === 0 && <p className="mt-2 text-sm text-slate-500">No contracts yet.</p>}
+        <h2 className="text-lg font-medium">Недавние договоры</h2>
+        {contracts === null && <p className="mt-2 text-sm text-slate-500">Загрузка…</p>}
+        {contracts?.length === 0 && <p className="mt-2 text-sm text-slate-500">Пока нет договоров.</p>}
         <ul className="mt-2 space-y-2">
           {contracts?.map((c) => (
             <li key={c.id} className="rounded border border-slate-800 p-3 text-sm">

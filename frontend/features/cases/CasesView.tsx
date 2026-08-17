@@ -36,57 +36,57 @@ export function CasesView() {
       setCounterpartyName("");
       await queryClient.invalidateQueries({ queryKey: ["cases", workspaceId] });
     } catch {
-      setError("Could not create case.");
+      setError("Не удалось создать дело.");
     } finally {
       setCreating(false);
     }
   }
 
   if (!workspaceId) {
-    return <div className="p-8 text-sm text-slate-500">Select a workspace to view cases.</div>;
+    return <div className="p-8 text-sm text-slate-500">Выберите рабочее пространство, чтобы увидеть дела.</div>;
   }
 
   return (
-    <div className="mx-auto max-w-3xl p-8">
-      <h1 className="text-2xl font-semibold">Cases</h1>
+    <div className="mx-auto max-w-3xl p-4 sm:p-8">
+      <h1 className="text-2xl font-semibold">Дела</h1>
 
       <div className="mt-6 space-y-3 rounded border border-slate-800 p-4">
-        <h2 className="text-sm font-medium text-slate-300">New Case</h2>
+        <h2 className="text-sm font-medium text-slate-300">Новое дело</h2>
         <input
           value={title}
           onChange={(e) => setTitle(e.target.value)}
-          placeholder="Title"
+          placeholder="Название"
           className="w-full rounded border border-slate-700 bg-slate-900 p-2 text-sm"
         />
-        <div className="flex gap-3">
+        <div className="flex flex-col gap-3 sm:flex-row">
           <input
             value={clientName}
             onChange={(e) => setClientName(e.target.value)}
-            placeholder="Client (optional)"
+            placeholder="Клиент (необязательно)"
             className="w-full rounded border border-slate-700 bg-slate-900 p-2 text-sm"
           />
           <input
             value={counterpartyName}
             onChange={(e) => setCounterpartyName(e.target.value)}
-            placeholder="Counterparty (optional)"
+            placeholder="Контрагент (необязательно)"
             className="w-full rounded border border-slate-700 bg-slate-900 p-2 text-sm"
           />
         </div>
         <button
           onClick={handleCreate}
           disabled={creating || !title.trim()}
-          className="rounded bg-slate-700 px-4 py-2 text-sm font-medium hover:bg-slate-600 disabled:opacity-50"
+          className="w-full rounded bg-slate-700 px-4 py-2 text-sm font-medium hover:bg-slate-600 disabled:opacity-50 sm:w-auto"
         >
-          {creating ? "Creating…" : "Create Case"}
+          {creating ? "Создание…" : "Создать дело"}
         </button>
         {error && <p className="text-sm text-red-400">{error}</p>}
       </div>
 
       <section className="mt-8">
-        <h2 className="text-lg font-medium">All Cases</h2>
-        {casesQuery.isLoading && <p className="mt-2 text-sm text-slate-500">Loading…</p>}
-        {casesQuery.isError && <p className="mt-2 text-sm text-red-400">Could not load cases.</p>}
-        {casesQuery.data?.length === 0 && <p className="mt-2 text-sm text-slate-500">No cases yet.</p>}
+        <h2 className="text-lg font-medium">Все дела</h2>
+        {casesQuery.isLoading && <p className="mt-2 text-sm text-slate-500">Загрузка…</p>}
+        {casesQuery.isError && <p className="mt-2 text-sm text-red-400">Не удалось загрузить дела.</p>}
+        {casesQuery.data?.length === 0 && <p className="mt-2 text-sm text-slate-500">Пока нет дел.</p>}
         <ul className="mt-2 space-y-2">
           {casesQuery.data?.map((c) => (
             <li key={c.id} className="rounded border border-slate-800 p-3 text-sm">
@@ -95,8 +95,8 @@ export function CasesView() {
               </Link>
               <div className="text-slate-500">
                 {c.status}
-                {c.client_name && ` · Client: ${c.client_name}`}
-                {c.counterparty_name && ` · vs. ${c.counterparty_name}`}
+                {c.client_name && ` · Клиент: ${c.client_name}`}
+                {c.counterparty_name && ` · против: ${c.counterparty_name}`}
               </div>
             </li>
           ))}

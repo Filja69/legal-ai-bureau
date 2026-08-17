@@ -9,11 +9,11 @@ import { useAuth } from "@/hooks/useAuth";
 import { DocumentStatusBadge } from "./DocumentStatusBadge";
 
 const TYPE_LABEL: Record<string, string> = {
-  contract: "Contract",
-  evidence: "Evidence",
-  correspondence: "Correspondence",
-  generated: "Generated",
-  other: "Other",
+  contract: "Договор",
+  evidence: "Доказательство",
+  correspondence: "Переписка",
+  generated: "Сгенерирован",
+  other: "Другое",
 };
 
 function formatSize(bytes: number | null): string {
@@ -47,46 +47,46 @@ export function DocumentsView() {
       await queryClient.invalidateQueries({ queryKey: ["documents", workspaceId] });
     } catch (err) {
       const detail = axios.isAxiosError(err) ? err.response?.data?.detail : null;
-      setError(detail ?? "Upload failed — is the backend running?");
+      setError(detail ?? "Загрузка не удалась — backend доступен?");
     } finally {
       setUploading(false);
     }
   }
 
   if (!workspaceId) {
-    return <div className="p-8 text-sm text-slate-500">Select a workspace to view documents.</div>;
+    return <div className="p-8 text-sm text-slate-500">Выберите рабочее пространство, чтобы увидеть документы.</div>;
   }
 
   return (
-    <div className="mx-auto max-w-3xl p-8">
-      <h1 className="text-2xl font-semibold">Documents</h1>
+    <div className="mx-auto max-w-3xl p-4 sm:p-8">
+      <h1 className="text-2xl font-semibold">Документы</h1>
       <p className="mt-2 text-sm text-slate-400">
-        PDF (text-layer), DOCX, TXT, and XLSX are extracted, chunked, and indexed automatically on
-        upload. Scanned PDFs with no text layer are honestly marked{" "}
-        <span className="font-medium text-amber-400">OCR REQUIRED</span> — OCR is not implemented yet.
+        PDF (с текстовым слоем), DOCX, TXT и XLSX автоматически распознаются, разбиваются на фрагменты и
+        индексируются при загрузке. Сканы PDF без текстового слоя честно помечаются{" "}
+        <span className="font-medium text-amber-400">ТРЕБУЕТСЯ OCR</span> — OCR пока не реализован.
       </p>
 
-      <div className="mt-4 flex items-center gap-3">
-        <input ref={fileInput} type="file" accept=".pdf,.docx,.txt,.xlsx,.csv,.png,.jpg,.jpeg" className="text-sm" />
+      <div className="mt-4 flex flex-col items-start gap-3 sm:flex-row sm:items-center">
+        <input ref={fileInput} type="file" accept=".pdf,.docx,.txt,.xlsx,.csv,.png,.jpg,.jpeg" className="w-full text-sm sm:w-auto" />
         <button
           onClick={handleUpload}
           disabled={uploading}
           className="rounded bg-slate-700 px-3 py-1.5 text-sm hover:bg-slate-600 disabled:opacity-50"
         >
-          {uploading ? "Uploading…" : "Upload"}
+          {uploading ? "Загрузка…" : "Загрузить"}
         </button>
       </div>
       {error && <p className="mt-2 text-sm text-red-400">{error}</p>}
 
       <section className="mt-8">
-        <h2 className="text-lg font-medium">Uploaded Documents</h2>
-        {documentsQuery.isLoading && <p className="mt-2 text-sm text-slate-500">Loading…</p>}
-        {documentsQuery.isError && <p className="mt-2 text-sm text-red-400">Could not load documents.</p>}
-        {documentsQuery.data?.length === 0 && <p className="mt-2 text-sm text-slate-500">No documents yet.</p>}
+        <h2 className="text-lg font-medium">Загруженные документы</h2>
+        {documentsQuery.isLoading && <p className="mt-2 text-sm text-slate-500">Загрузка…</p>}
+        {documentsQuery.isError && <p className="mt-2 text-sm text-red-400">Не удалось загрузить список документов.</p>}
+        {documentsQuery.data?.length === 0 && <p className="mt-2 text-sm text-slate-500">Пока нет документов.</p>}
         <ul className="mt-2 space-y-2">
           {documentsQuery.data?.map((doc) => (
-            <li key={doc.id} className="flex items-center justify-between rounded border border-slate-800 p-3 text-sm">
-              <div>
+            <li key={doc.id} className="flex flex-wrap items-center justify-between gap-2 rounded border border-slate-800 p-3 text-sm">
+              <div className="min-w-0">
                 <Link href={`/documents/${doc.id}`} className="font-medium text-slate-200 hover:underline">
                   {doc.title}
                 </Link>

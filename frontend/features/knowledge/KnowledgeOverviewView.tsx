@@ -11,42 +11,42 @@ export function KnowledgeOverviewView() {
   const isForbidden = axios.isAxiosError(statusQuery.error) && statusQuery.error.response?.status === 403;
 
   return (
-    <div className="mx-auto max-w-4xl p-8">
-      <h1 className="text-2xl font-semibold">Knowledge Base</h1>
+    <div className="mx-auto max-w-4xl p-4 sm:p-8">
+      <h1 className="text-2xl font-semibold">База знаний</h1>
       <div className="mt-4">
         <KnowledgeNav />
       </div>
 
       <div className="mt-6">
-        {statusQuery.isLoading && <p className="text-sm text-slate-500">Loading…</p>}
+        {statusQuery.isLoading && <p className="text-sm text-slate-500">Загрузка…</p>}
         {isForbidden && (
-          <p className="text-sm text-red-400">Admin or Owner role required to view Knowledge Base status.</p>
+          <p className="text-sm text-red-400">Для просмотра статуса базы знаний требуется роль Admin или Owner.</p>
         )}
-        {statusQuery.isError && !isForbidden && <p className="text-sm text-red-400">Could not load index status.</p>}
+        {statusQuery.isError && !isForbidden && <p className="text-sm text-red-400">Не удалось загрузить статус индекса.</p>}
 
         {statusQuery.data && (
           <div className="space-y-6">
             <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
               <div className="rounded border border-slate-800 p-3">
-                <div className="text-xs text-slate-500">Total chunks</div>
+                <div className="text-xs text-slate-500">Всего фрагментов</div>
                 <div className="text-xl font-semibold">{statusQuery.data.total_chunks}</div>
               </div>
               <div className="rounded border border-slate-800 p-3">
-                <div className="text-xs text-slate-500">Mock chunks</div>
+                <div className="text-xs text-slate-500">Mock-фрагментов</div>
                 <div className="text-xl font-semibold">{statusQuery.data.mock_chunks}</div>
               </div>
               <div className="rounded border border-slate-800 p-3">
-                <div className="text-xs text-slate-500">Failed embeddings</div>
+                <div className="text-xs text-slate-500">Ошибок embedding</div>
                 <div className="text-xl font-semibold">{statusQuery.data.failed_embeddings}</div>
               </div>
               <div className="rounded border border-slate-800 p-3">
-                <div className="text-xs text-slate-500">Pending embeddings</div>
+                <div className="text-xs text-slate-500">В очереди на embedding</div>
                 <div className="text-xl font-semibold">{statusQuery.data.pending_embeddings}</div>
               </div>
             </div>
 
             <div className="rounded border border-slate-800 p-4">
-              <h2 className="text-sm font-semibold text-slate-300">Active Embedding</h2>
+              <h2 className="text-sm font-semibold text-slate-300">Активный Embedding</h2>
               <dl className="mt-2 grid grid-cols-2 gap-2 text-sm">
                 <dt className="text-slate-500">Provider</dt>
                 <dd className="text-slate-200">{statusQuery.data.active_embedding.provider}</dd>
