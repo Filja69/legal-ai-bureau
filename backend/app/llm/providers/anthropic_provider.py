@@ -27,12 +27,25 @@ class AnthropicProvider:
         # LLMMessage.role is a free-form str (validated at the call site to be
         # "user"/"assistant"); the Anthropic SDK wants a literal union here, so
         # we cast rather than pretend the dict is statically that precise.
+        #
+        # `temperature` stays in the signature to satisfy the shared LLMProvider
+        # Protocol (OpenAIProvider uses it) but is deliberately never forwarded
+        # to the Anthropic API. Verified live against platform.claude.com on
+        # this audit: Claude Opus 5 (and Opus 4.7/4.8) reject temperature/
+        # top_p/top_k outright — any value, including the default — with a 400,
+        # and Anthropic's own migration guidance is "the safest migration path
+        # is to omit these parameters entirely ... prompting is the recommended
+        # way to guide model behavior." Sonnet-tier models are not documented
+        # as cleanly (some sources suggest non-default values only 400 there),
+        # so rather than track a fragile per-model allowlist that breaks again
+        # on the next model release, this provider never sends the parameter
+        # for ANY model — omission is documented-safe everywhere, forwarding
+        # it is not.
         anthropic_messages = cast(Any, [{"role": m.role, "content": m.content} for m in messages])
         response = await self._client.messages.create(
             model=model or self._default_model,
             system=system or "",
             max_tokens=max_tokens,
-            temperature=temperature,
             messages=anthropic_messages,
         )
         text = "".join(block.text for block in response.content if block.type == "text")
@@ -60,13 +73,14 @@ class AnthropicProvider:
         # than asking for JSON in prose and hoping). Schema *validation* and
         # retry/repair live one layer up in LLMGateway (shared across
         # providers) — this method's only job is "get JSON out of Anthropic."
+        # See the identical note in generate() — temperature is never forwarded
+        # to the Anthropic API for the same reason.
         tool_name = "emit_structured_response"
         anthropic_messages = cast(Any, [{"role": m.role, "content": m.content} for m in messages])
         response = await self._client.messages.create(
             model=model or self._default_model,
             system=system or "",
             max_tokens=4096,
-            temperature=temperature,
             messages=anthropic_messages,
             tools=[{"name": tool_name, "description": "Emit the structured response.", "input_schema": response_schema}],
             tool_choice={"type": "tool", "name": tool_name},
