@@ -189,9 +189,10 @@ async def test_overlapping_validity_period_is_rejected(db_session):
 
 async def test_manual_source_alone_does_not_produce_verified_status(db_session):
     """Rule 3/4: importing via the curated path must never itself set
-    VERIFIED. Citing the freshly-imported article, with no quoted fragment
-    check bypassed and nothing else touched, must go through the *same* five
-    checks CitationValidator always runs.
+    VERIFIED. Citing the freshly-imported (confirmed_official_source=True)
+    article, with nothing bypassed, must go through the *same* six checks
+    CitationValidator always runs — including the trust check, which this
+    fixture passes because is_official=True, not because it was curated.
     """
     service = _service(db_session)
     result = await service.import_document(_law_article())
@@ -201,7 +202,7 @@ async def test_manual_source_alone_does_not_produce_verified_status(db_session):
     check = await validator.validate(
         CitationDraft(law_short_name="TEST-GK", article_number="333", quoted_fragment=None, event_date=date(2020, 1, 1))
     )
-    # No quoted_fragment supplied and source is not mock -> passes all real checks -> VERIFIED.
+    # No quoted_fragment supplied, source is not mock, and is_official=True -> passes all real checks -> VERIFIED.
     # This is CitationValidator's own ordinary logic, not a special case for curated imports.
     assert check.status == CitationStatus.VERIFIED
     assert check.law_version_id == str(result.law_version_id)
@@ -239,10 +240,9 @@ async def test_verified_only_after_normal_provenance_checks_pass(db_session):
     assert unverified.status == CitationStatus.UNVERIFIED
 
 
-async def test_unconfirmed_official_source_still_verifies_but_is_marked_unofficial(db_session):
-    """confirmed_official_source=False must not block VERIFIED (CitationValidator
-    doesn't gate on is_official at all — only is_mock) but must be honestly
-    recorded as is_official=False, never silently upgraded."""
+async def test_unconfirmed_official_source_is_recorded_honestly_as_unofficial(db_session):
+    """confirmed_official_source=False must be honestly recorded as
+    is_official=False on the LegalSource row, never silently upgraded."""
     service = _service(db_session)
     result = await service.import_document(_law_article(confirmed_official_source=False))
     await db_session.commit()
@@ -251,12 +251,95 @@ async def test_unconfirmed_official_source_still_verifies_but_is_marked_unoffici
     source_document = await db_session.get(SourceDocument, law_version.source_document_id)
     legal_source = await db_session.get(LegalSource, source_document.source_id)
     assert legal_source.is_official is False
+    assert legal_source.is_licensed is False
+
+
+async def test_unconfirmed_official_source_with_otherwise_perfect_provenance_is_not_verified(db_session):
+    """Trust-semantics fix: confirmed_official_source=False + matching hash +
+    matching quote + valid temporal window must still NOT reach VERIFIED —
+    an operator's unconfirmed origin claim is not proof of origin, no matter
+    how internally consistent the stored text is. This is CitationValidator's
+    own trust check (is_official OR is_licensed), not a special case keyed
+    off "was this curated" — see citation_validator.py check 6.
+    """
+    service = _service(db_session)
+    result = await service.import_document(_law_article(confirmed_official_source=False))
+    await db_session.commit()
+
+    validator = CitationValidator(db_session)
+    check = await validator.validate(
+        CitationDraft(
+            law_short_name="TEST-GK",
+            article_number="333",
+            quoted_fragment=_FAKE_STATUTE_TEXT,  # exact match — hash/quote/temporal all "perfect"
+            event_date=date(2020, 1, 1),
+        )
+    )
+    assert check.status != CitationStatus.VERIFIED
+    assert check.status == CitationStatus.UNVERIFIED
+    assert check.law_version_id == str(result.law_version_id)
+
+
+async def test_confirmed_official_source_with_broken_hash_is_broken_not_verified(db_session):
+    service = _service(db_session)
+    result = await service.import_document(_law_article(confirmed_official_source=True))
+    await db_session.commit()
+
+    source_document = await db_session.get(SourceDocument, result.source_document_id)
+    source_document.normalized_content = source_document.normalized_content + " TAMPERED"
+    await db_session.commit()
 
     validator = CitationValidator(db_session)
     check = await validator.validate(
         CitationDraft(law_short_name="TEST-GK", article_number="333", quoted_fragment=None, event_date=date(2020, 1, 1))
     )
-    assert check.status == CitationStatus.VERIFIED  # is_official doesn't gate this; is_mock does
+    assert check.status == CitationStatus.BROKEN
+
+
+async def test_confirmed_official_source_with_wrong_quote_is_broken_not_verified(db_session):
+    service = _service(db_session)
+    await service.import_document(_law_article(confirmed_official_source=True))
+    await db_session.commit()
+
+    validator = CitationValidator(db_session)
+    check = await validator.validate(
+        CitationDraft(
+            law_short_name="TEST-GK",
+            article_number="333",
+            quoted_fragment="это текст, которого нет в статье",
+            event_date=date(2020, 1, 1),
+        )
+    )
+    assert check.status == CitationStatus.BROKEN
+
+
+async def test_confirmed_official_source_with_temporal_mismatch_is_temporally_invalid(db_session):
+    service = _service(db_session)
+    await service.import_document(
+        _law_article(confirmed_official_source=True, valid_from=date(2015, 6, 1), valid_to=date(2018, 1, 1))
+    )
+    await db_session.commit()
+
+    validator = CitationValidator(db_session)
+    check = await validator.validate(
+        CitationDraft(law_short_name="TEST-GK", article_number="333", quoted_fragment=None, event_date=date(2020, 1, 1))
+    )
+    assert check.status == CitationStatus.TEMPORALLY_INVALID
+
+
+async def test_confirmed_official_source_with_all_checks_passing_is_verified(db_session):
+    service = _service(db_session)
+    result = await service.import_document(_law_article(confirmed_official_source=True))
+    await db_session.commit()
+
+    validator = CitationValidator(db_session)
+    check = await validator.validate(
+        CitationDraft(
+            law_short_name="TEST-GK", article_number="333", quoted_fragment=_FAKE_STATUTE_TEXT, event_date=date(2020, 1, 1)
+        )
+    )
+    assert check.status == CitationStatus.VERIFIED
+    assert check.law_version_id == str(result.law_version_id)
 
 
 async def test_altered_stored_text_breaks_provenance_hash(db_session):

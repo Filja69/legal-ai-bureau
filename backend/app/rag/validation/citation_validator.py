@@ -8,8 +8,27 @@ persisted as a `Citation` row or shown to a user as fact. Checks, in order:
 3. quoted fragment actually appears in the stored text                     -> else BROKEN
 4. provenance hash still matches the source document it was ingested from  -> else BROKEN
 5. originating source isn't a mock dataset masquerading as official        -> else MOCK
+6. originating source is actually trusted (official OR separately
+   licensed) — not merely an operator's *unconfirmed* claim               -> else UNVERIFIED
 
-Only a citation that survives all five is VERIFIED.
+Only a citation that survives all six is VERIFIED.
+
+Check 6 (curated-import trust-semantics fix) deliberately does NOT test
+"is this source official" — LEGAL-SOURCES.md §1 already treats
+official/licensed as independent, and a future licensed commercial DB
+(КонсультантПлюс/ГАРАНТ once under a signed agreement) is real,
+non-official, and should still be able to reach VERIFIED. What it tests is
+"has this source's trustworthiness actually been established" — i.e.
+`is_official OR is_licensed` — as opposed to a human-curated import whose
+operator did not confirm the text came from the official URL they typed in
+(`confirmed_official_source=False` in `curated_import.py`, which produces a
+`LegalSource` with both flags False). A hash match, a quote match, and a
+valid date window only prove the text is internally consistent with
+whatever was stored — they say nothing about whether the underlying claim
+of origin was ever actually confirmed, which is exactly what checks 1-5
+cannot catch. There is no `if manual_curated: ...` here — any source with
+`is_official=False, is_licensed=False, is_mock=False` is treated the same
+regardless of how it entered the system.
 """
 from __future__ import annotations
 
@@ -98,6 +117,18 @@ class CitationValidator:
                 source_id=str(source.id),
             )
 
+        if source is not None and not _is_trusted_source(source):
+            return CitationCheck(
+                status=CitationStatus.UNVERIFIED,
+                reason=(
+                    "Citation resolves correctly and its stored text/hash/dates check out, but its source has "
+                    "not been established as official or otherwise licensed/trusted (is_official=False, "
+                    "is_licensed=False) — this is not enough to mark a citation VERIFIED."
+                ),
+                law_version_id=str(version.id),
+                source_id=str(source.id),
+            )
+
         return CitationCheck(
             status=CitationStatus.VERIFIED,
             reason="Article and quote confirmed against the Legal Knowledge Base.",
@@ -138,3 +169,17 @@ class CitationValidator:
         if source_document is None:
             return None
         return await self._session.get(LegalSource, source_document.source_id)
+
+
+def _is_trusted_source(source: LegalSource) -> bool:
+    """Whether a (non-mock) source's origin has actually been established —
+    official (`is_official`) OR separately licensed (`is_licensed`), per
+    LEGAL-SOURCES.md §1's "official/licensed/public/free are independent"
+    rule. Deliberately not `is_official` alone: a future signed-agreement
+    commercial DB is real and trustworthy without being a government
+    source. Deliberately not just "not is_mock": an operator's unconfirmed
+    manual-curated claim (`confirmed_official_source=False`) is real,
+    non-mock content whose origin claim was explicitly never confirmed —
+    see curated_import.py — and must not pass this check either.
+    """
+    return bool(source.is_official or source.is_licensed)
