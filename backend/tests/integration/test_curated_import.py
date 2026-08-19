@@ -16,10 +16,16 @@ from app.domains.legal_knowledge.curated_import import (
     CuratedImportKind,
     CuratedImportService,
 )
+from app.domains.legal_research.models import QueryType, ResearchQuery
+from app.domains.legal_research.retrieval_pipeline import MultiStageRetriever
 from app.models.legal_knowledge import Law, LawVersion, LegalDocument, LegalDocumentType, LegalSource
 from app.models.source_document import SourceDocument
 from app.rag.embeddings.base import MockEmbeddingProvider
 from app.rag.indexing.chunk_indexer import LegalChunkIndexer
+from app.rag.retrieval.base import RetrievalQuery
+from app.rag.retrieval.hybrid_retriever import HybridRetriever
+from app.rag.retrieval.keyword_retriever import PostgresKeywordRetriever
+from app.rag.retrieval.vector_retriever import PgVectorRetriever
 from app.rag.validation.citation_validator import CitationDraft, CitationStatus, CitationValidator
 
 pytestmark = pytest.mark.asyncio
@@ -357,3 +363,60 @@ async def test_altered_stored_text_breaks_provenance_hash(db_session):
     )
     assert check.status == CitationStatus.BROKEN
     assert "provenance hash" in check.reason
+
+
+async def test_curated_law_article_is_indexed_and_found_by_keyword_retrieval(db_session):
+    """Step 4 concern: a canonical LawVersion record existing is not the same
+    as it being retrievable. Confirms the EmbeddingChunk row CuratedImportService
+    creates is actually picked up by PostgresKeywordRetriever's on-the-fly
+    to_tsvector(chunk_text) query — no separate index-population step exists
+    or is needed (see keyword_retriever.py).
+    """
+    service = _service(db_session)
+    result = await service.import_document(_law_article())
+    await db_session.commit()
+
+    retriever = PostgresKeywordRetriever(db_session)
+    results = await retriever.retrieve(RetrievalQuery(text="уменьшить неустойку несоразмерна", top_k=10))
+
+    assert len(results) >= 1
+    assert any(r.metadata.get("article_number") == "333" for r in results)
+    assert any(r.metadata.get("law_version_id") == str(result.law_version_id) for r in results)
+
+
+async def test_curated_law_article_is_found_by_hybrid_retrieval(db_session):
+    service = _service(db_session)
+    result = await service.import_document(_law_article())
+    await db_session.commit()
+
+    hybrid = HybridRetriever(PostgresKeywordRetriever(db_session), PgVectorRetriever(db_session, MockEmbeddingProvider()))
+    results = await hybrid.retrieve(RetrievalQuery(text=_FAKE_STATUTE_TEXT, top_k=10))
+
+    assert len(results) >= 1
+    assert any(r.metadata.get("law_version_id") == str(result.law_version_id) for r in results)
+
+
+async def test_curated_law_article_is_found_via_multi_stage_retriever(db_session):
+    """The exact path the Legal Research engine actually uses
+    (retrieval_pipeline.py) — not just the lower-level retrievers directly.
+    """
+    service = _service(db_session)
+    result = await service.import_document(_law_article())
+    await db_session.commit()
+
+    multi_stage = MultiStageRetriever(db_session)
+    pool = await multi_stage.run(
+        queries=[ResearchQuery(text="статья 333 уменьшение неустойки", query_type=QueryType.LAW, issue_id="issue-1")],
+        jurisdiction="RU",
+        effective_at="2020-01-01",
+        facts=[],
+    )
+
+    assert len(pool.items) >= 1
+    # EvidenceItem.chunk_id is the EmbeddingChunk id, which for chunk_type=
+    # "law_version" is the LawVersion id itself (see IngestionPipeline /
+    # CuratedImportService's index_chunk("law_version", law_version.id, ...)).
+    matching = [i for i in pool.items if i.chunk_id == str(result.law_version_id)]
+    assert matching, f"curated LawVersion {result.law_version_id} not found in evidence pool: {pool.items}"
+    assert matching[0].issue_id == "issue-1"
+    assert matching[0].is_mock is False
