@@ -2,13 +2,15 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
+import * as contractsApi from "@/api/contracts";
 import * as documentsApi from "@/api/documents";
 import * as authHook from "@/hooks/useAuth";
 import { DocumentDetailView } from "./DocumentDetailView";
 import type { Document } from "@/types/document";
 
+const pushMock = vi.fn();
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push: vi.fn() }),
+  useRouter: () => ({ push: pushMock }),
 }));
 
 function wrapper({ children }: { children: ReactNode }) {
@@ -38,6 +40,7 @@ function baseDocument(overrides: Partial<Document> = {}): Document {
 describe("DocumentDetailView", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    pushMock.mockReset();
     vi.spyOn(authHook, "useAuth").mockReturnValue({
       isAuthenticated: true,
       token: "tok",
@@ -163,5 +166,60 @@ describe("DocumentDetailView", () => {
 
     await waitFor(() => expect(screen.getByText("В документе указана сумма к оплате: 500 000 руб.")).toBeInTheDocument());
     expect(screen.getByText("Extracted")).toBeInTheDocument();
+  });
+
+  it("shows 'Отправить на проверку договора' for a READY document", async () => {
+    vi.spyOn(documentsApi, "getDocument").mockResolvedValue(baseDocument({ status: "ready" }));
+    render(<DocumentDetailView documentId="doc-1" />, { wrapper });
+    await waitFor(() => expect(screen.getByText("Отправить на проверку договора")).toBeInTheDocument());
+  });
+
+  it("does not offer contract creation for a non-READY document", async () => {
+    vi.spyOn(documentsApi, "getDocument").mockResolvedValue(baseDocument({ status: "processing" }));
+    render(<DocumentDetailView documentId="doc-1" />, { wrapper });
+    await waitFor(() => expect(screen.getByText("Test Contract")).toBeInTheDocument());
+    expect(screen.queryByText("Отправить на проверку договора")).not.toBeInTheDocument();
+  });
+
+  it("clicking 'Отправить на проверку договора' calls createContract with the document_id and redirects", async () => {
+    vi.spyOn(documentsApi, "getDocument").mockResolvedValue(baseDocument({ status: "ready", title: "Договор аренды" }));
+    const createSpy = vi.spyOn(contractsApi, "createContract").mockResolvedValue({
+      id: "contract-1",
+      workspace_id: "ws-1",
+      title: "Договор аренды",
+      contract_type: "unknown",
+      status: "draft",
+      is_mock: false,
+    });
+
+    render(<DocumentDetailView documentId="doc-1" />, { wrapper });
+    await waitFor(() => expect(screen.getByText("Отправить на проверку договора")).toBeInTheDocument());
+    fireEvent.click(screen.getByText("Отправить на проверку договора"));
+
+    await waitFor(() =>
+      expect(createSpy).toHaveBeenCalledWith("ws-1", {
+        title: "Договор аренды",
+        contract_type: "unknown",
+        document_id: "doc-1",
+      })
+    );
+    await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/contracts/contract-1"));
+  });
+
+  it("shows an explicit error, never a silent failure, when contract creation fails", async () => {
+    vi.spyOn(documentsApi, "getDocument").mockResolvedValue(baseDocument({ status: "ready" }));
+    vi.spyOn(contractsApi, "createContract").mockRejectedValue(
+      Object.assign(new Error("400"), {
+        isAxiosError: true,
+        response: { data: { detail: "Document has no extracted text to analyze" } },
+      })
+    );
+
+    render(<DocumentDetailView documentId="doc-1" />, { wrapper });
+    await waitFor(() => expect(screen.getByText("Отправить на проверку договора")).toBeInTheDocument());
+    fireEvent.click(screen.getByText("Отправить на проверку договора"));
+
+    await waitFor(() => expect(screen.getByText("Document has no extracted text to analyze")).toBeInTheDocument());
+    expect(pushMock).not.toHaveBeenCalled();
   });
 });

@@ -36,7 +36,7 @@ export function ContractsView() {
     setUploading(true);
     setError(null);
     try {
-      await createContract(workspaceId, title, rawText, contractType);
+      await createContract(workspaceId, { title, raw_text: rawText, contract_type: contractType });
       setTitle("");
       setRawText("");
       await refresh();
@@ -56,11 +56,18 @@ export function ContractsView() {
       <h1 className="text-2xl font-semibold">Договоры</h1>
       <p className="mt-1 text-sm text-slate-400">
         Анализ договоров — извлечение условий, поиск рисков, проверка через Юридическое исследование,
-        двойная проверка юристами, редлайн. Разбор PDF/DOCX пока не поддерживается — вставьте текст.
+        двойная проверка юристами, редлайн. Есть два способа добавить договор: вставить текст вручную ниже,
+        или загрузить файл (PDF/DOCX/TXT) на странице «Документы» и оттуда отправить его на проверку.
       </p>
+      <Link
+        href="/documents"
+        className="mt-3 inline-block rounded border border-slate-700 px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-800"
+      >
+        Загрузить договор (файл)
+      </Link>
 
       <div className="mt-6 space-y-3 rounded border border-slate-800 p-4">
-        <h2 className="text-sm font-medium text-slate-300">Добавить договор</h2>
+        <h2 className="text-sm font-medium text-slate-300">Или вставить текст вручную</h2>
         <input
           value={title}
           onChange={(e) => setTitle(e.target.value)}

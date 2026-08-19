@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import axios from "axios";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { createContract } from "@/api/contracts";
 import {
   analyzeDocument,
   askDocument,
@@ -35,6 +36,8 @@ export function DocumentDetailView({ documentId }: { documentId: string }) {
   const [analysis, setAnalysis] = useState<DocumentAnalyzeResponse | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
   const [analyzeError, setAnalyzeError] = useState<string | null>(null);
+  const [creatingContract, setCreatingContract] = useState(false);
+  const [createContractError, setCreateContractError] = useState<string | null>(null);
 
   const documentQuery = useQuery({
     queryKey: ["document", workspaceId, documentId],
@@ -90,6 +93,27 @@ export function DocumentDetailView({ documentId }: { documentId: string }) {
       setAskError("Ask failed.");
     } finally {
       setAsking(false);
+    }
+  }
+
+  async function handleCreateContract() {
+    if (!workspaceId) return;
+    const doc = documentQuery.data;
+    if (!doc) return;
+    setCreatingContract(true);
+    setCreateContractError(null);
+    try {
+      const contract = await createContract(workspaceId, {
+        title: doc.title,
+        contract_type: "unknown",
+        document_id: doc.id,
+      });
+      router.push(`/contracts/${contract.id}`);
+    } catch (err) {
+      const detail = axios.isAxiosError(err) ? err.response?.data?.detail : null;
+      setCreateContractError(detail ?? "Не удалось отправить договор на проверку — попробуйте ещё раз.");
+    } finally {
+      setCreatingContract(false);
     }
   }
 
@@ -177,7 +201,16 @@ export function DocumentDetailView({ documentId }: { documentId: string }) {
                 ))}
               </ul>
             )}
-            <div className="flex gap-2 pt-2">
+            <div className="flex flex-wrap gap-2 pt-2">
+              {doc.status === "ready" && (
+                <button
+                  onClick={handleCreateContract}
+                  disabled={creatingContract}
+                  className="rounded bg-slate-700 px-3 py-1.5 text-xs font-medium hover:bg-slate-600 disabled:opacity-50"
+                >
+                  {creatingContract ? "Отправка…" : "Отправить на проверку договора"}
+                </button>
+              )}
               {(doc.status === "failed" || doc.status === "ocr_required") && (
                 <button
                   onClick={handleRetry}
@@ -195,6 +228,7 @@ export function DocumentDetailView({ documentId }: { documentId: string }) {
                 {deleting ? "Deleting…" : "Delete"}
               </button>
             </div>
+            {createContractError && <p className="text-sm text-red-400">{createContractError}</p>}
           </div>
         )}
 

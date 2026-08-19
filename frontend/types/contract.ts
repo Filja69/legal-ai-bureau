@@ -19,6 +19,16 @@ export interface Contract {
   is_mock: boolean;
 }
 
+// Mirrors backend/app/schemas/contract.py ContractCreate — exactly one of
+// raw_text/document_id is meaningful; document_id takes precedence on the
+// backend if both are somehow set, so callers should only ever send one.
+export interface ContractCreateInput {
+  title: string;
+  contract_type: ContractType;
+  raw_text?: string;
+  document_id?: string;
+}
+
 export interface ContractClause {
   id: string;
   clause_number: string | null;

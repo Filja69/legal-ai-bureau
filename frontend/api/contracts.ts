@@ -5,9 +5,9 @@ import type {
   AnalyzeResponse,
   Contract,
   ContractClause,
+  ContractCreateInput,
   ContractReport,
   ContractRisk,
-  ContractType,
   ContractVersion,
   PartyPerspective,
   RedlineChange,
@@ -25,17 +25,11 @@ export async function getContract(workspaceId: string, contractId: string): Prom
   return data;
 }
 
-export async function createContract(
-  workspaceId: string,
-  title: string,
-  rawText: string,
-  contractType: ContractType = "unknown"
-): Promise<Contract> {
-  const { data } = await apiClient.post<Contract>(
-    "/api/v1/legal/contracts",
-    { title, raw_text: rawText, contract_type: contractType },
-    withWorkspace(workspaceId)
-  );
+// Creates a contract from EITHER pasted text OR an already-uploaded, READY
+// Document (backend/app/api/v1/contracts.py — document_id takes precedence
+// there, so callers should only ever populate one of the two here).
+export async function createContract(workspaceId: string, input: ContractCreateInput): Promise<Contract> {
+  const { data } = await apiClient.post<Contract>("/api/v1/legal/contracts", input, withWorkspace(workspaceId));
   return data;
 }
 
