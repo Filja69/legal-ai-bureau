@@ -76,7 +76,10 @@ class CuratedImportConflictError(Exception):
 class CuratedImportInput:
     kind: CuratedImportKind
     source_url: str
-    confirmed_official_source: bool
+    # Optional at the type level (not just at runtime) because rule 8
+    # requires validate_input() to catch a genuinely *omitted* confirmation
+    # as its own distinct error, never silently coerce it to False.
+    confirmed_official_source: bool | None
     title: str
     text: str
     jurisdiction: str = "RU"
@@ -131,6 +134,23 @@ class CuratedImportResult:
     embedding_indexed: bool = False
 
 
+@dataclass
+class BatchLineOutcome:
+    """One line of a JSONL batch. `ok=False` covers three distinct reasons
+    (validation error, conflict with an existing DB record, or conflict with
+    another line earlier in the same batch) — `error` says which. A batch
+    where every line is `ok=True` is exactly the "whole-batch dry-run first,
+    reject entire batch if any line fails" contract: `import_batch()` only
+    ever writes anything when `preview_batch()` on the same input already
+    came back all-`ok`.
+    """
+
+    line_number: int
+    ok: bool
+    result: CuratedImportResult | None = None
+    error: str | None = None
+
+
 # ---------------------------------------------------------------------------
 # Validation (rule 8) — pure, no DB access, so unit tests don't need Postgres.
 # ---------------------------------------------------------------------------
@@ -152,7 +172,7 @@ def validate_input(raw: CuratedImportInput) -> None:
     if not raw.title or not raw.title.strip():
         errors.append("title must not be empty.")
 
-    if raw.confirmed_official_source is None:  # type: ignore[comparison-overlap]
+    if raw.confirmed_official_source is None:
         errors.append(
             "confirmed_official_source must be explicitly true or false — an operator must state whether the "
             "text was actually taken from the stated source_url, it is never assumed."
@@ -242,6 +262,72 @@ class CuratedImportService:
         validate_input(raw)
         preview = await self._build_preview(raw)
         return CuratedImportResult(dry_run=True, preview=preview)
+
+    async def preview_batch(self, raws: list[CuratedImportInput]) -> list[BatchLineOutcome]:
+        """Never writes anything (delegates to `preview()` per line). Also
+        catches identity collisions *within the batch itself* — two lines
+        targeting the same article — which `_build_preview()` alone can't
+        see since it only ever checks against already-committed DB state.
+        """
+        outcomes: list[BatchLineOutcome] = []
+        seen_external_ids: dict[str, int] = {}
+
+        for line_number, raw in enumerate(raws, start=1):
+            try:
+                result = await self.preview(raw)
+            except CuratedImportValidationError as exc:
+                outcomes.append(BatchLineOutcome(line_number=line_number, ok=False, error="; ".join(exc.errors)))
+                continue
+
+            external_id = _external_id(raw)
+            if external_id in seen_external_ids:
+                outcomes.append(
+                    BatchLineOutcome(
+                        line_number=line_number,
+                        ok=False,
+                        result=result,
+                        error=f"duplicate identity within this batch (same as line {seen_external_ids[external_id]})",
+                    )
+                )
+                continue
+            seen_external_ids[external_id] = line_number
+
+            if result.preview.would_conflict:
+                outcomes.append(
+                    BatchLineOutcome(
+                        line_number=line_number,
+                        ok=False,
+                        result=result,
+                        error=(
+                            "conflict with an existing DB record (different content_hash for the same identity, "
+                            f"source_document_id={result.preview.conflicting_source_document_id})"
+                        ),
+                    )
+                )
+                continue
+
+            outcomes.append(BatchLineOutcome(line_number=line_number, ok=True, result=result))
+
+        return outcomes
+
+    async def import_batch(self, raws: list[CuratedImportInput]) -> list[BatchLineOutcome]:
+        """All-or-nothing: re-runs `preview_batch()` first and writes NOTHING
+        if any line isn't `ok` — no partial batch ever lands in the
+        database. Each real write still goes through `import_document()`
+        (same trust semantics, same indexing, same idempotency) via
+        `session.flush()`, not `session.commit()` — the caller commits once
+        for the whole batch, so an unexpected failure mid-loop is undone
+        simply by never committing (see app/cli/curated_legal_import.py).
+        """
+        preview_outcomes = await self.preview_batch(raws)
+        if not all(outcome.ok for outcome in preview_outcomes):
+            return preview_outcomes
+
+        outcomes: list[BatchLineOutcome] = []
+        for line_number, raw in enumerate(raws, start=1):
+            result = await self.import_document(raw)
+            outcomes.append(BatchLineOutcome(line_number=line_number, ok=True, result=result))
+        return outcomes
 
     async def import_document(self, raw: CuratedImportInput) -> CuratedImportResult:
         validate_input(raw)
@@ -351,6 +437,10 @@ class CuratedImportService:
         )
 
     async def _build_preview(self, raw: CuratedImportInput) -> CuratedImportPreview:
+        # Only ever called after validate_input() (preview()/import_document()
+        # both call it first), which rejects confirmed_official_source=None —
+        # narrows the type back to bool here rather than re-deriving it.
+        assert raw.confirmed_official_source is not None
         normalized_text = raw.text.strip()
         hash_value = content_hash(normalized_text)
         source_name = _SOURCE_NAMES[(raw.kind, raw.confirmed_official_source)]
@@ -402,6 +492,8 @@ class CuratedImportService:
         )
 
     async def _get_or_create_source(self, raw: CuratedImportInput) -> LegalSource:
+        # Only ever called after validate_input() — see _build_preview().
+        assert raw.confirmed_official_source is not None
         source_name = _SOURCE_NAMES[(raw.kind, raw.confirmed_official_source)]
         existing = await self._session.execute(select(LegalSource).where(LegalSource.name == source_name))
         source = existing.scalars().first()

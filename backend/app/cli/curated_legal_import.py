@@ -4,14 +4,23 @@ workflow for staging (curated-dataset task, rule 10). NOT a public endpoint.
     python -m app.cli.curated_legal_import --input document.json --dry-run
     python -m app.cli.curated_legal_import --input document.json
 
+    python -m app.cli.curated_legal_import --batch batch.jsonl --dry-run
+    python -m app.cli.curated_legal_import --batch batch.jsonl
+
 Never fetches anything itself (rule 11) — no automated download from
 vsrf.ru/pravo.gov.ru or anywhere else. The operator personally reads the
-official source page and supplies its exact text in the input JSON file.
+official source page and supplies its exact text in the input file(s).
 `--dry-run` (rule 9) runs every lookup/validation and prints exactly what
 would be created/skipped/conflicted, without a single `session.add()` or
-`session.commit()` — see CuratedImportService.preview().
+`session.commit()` — see CuratedImportService.preview()/preview_batch().
 
-Input JSON — one document per file, `kind` selects the shape:
+`--batch` is whole-file, all-or-nothing (starter-KB task): the entire JSONL
+is dry-run-checked first, and if ANY line fails validation, conflicts with
+an existing DB record, or collides with another line in the same file,
+NOTHING is written for the whole batch — never a partial import.
+
+Input JSON — one document per file (or one per line in a `--batch` JSONL
+file), `kind` selects the shape:
 
     law_article:
         {
@@ -59,9 +68,11 @@ import asyncio
 import json
 import sys
 from datetime import date
+from typing import Any
 
 from app.db.session import get_session_factory
 from app.domains.legal_knowledge.curated_import import (
+    BatchLineOutcome,
     CuratedImportConflictError,
     CuratedImportInput,
     CuratedImportKind,
@@ -84,10 +95,7 @@ def _parse_date(value: str | None) -> date | None:
     return date.fromisoformat(value) if value else None
 
 
-def _load_input(path: str) -> CuratedImportInput:
-    with open(path, encoding="utf-8") as f:
-        raw = json.load(f)
-
+def _parse_document_dict(raw: dict[str, Any]) -> CuratedImportInput:
     kind_str = raw.get("kind")
     try:
         kind = CuratedImportKind(kind_str)
@@ -125,6 +133,31 @@ def _load_input(path: str) -> CuratedImportInput:
     )
 
 
+def _load_input(path: str) -> CuratedImportInput:
+    with open(path, encoding="utf-8") as f:
+        raw = json.load(f)
+    return _parse_document_dict(raw)
+
+
+def _load_batch(path: str) -> list[CuratedImportInput]:
+    """One JSON object per non-blank line. A malformed line raises
+    ValueError with its 1-based line number — caught by main() and reported
+    the same way a validation failure is, before anything is touched.
+    """
+    inputs: list[CuratedImportInput] = []
+    with open(path, encoding="utf-8") as f:
+        for line_number, line in enumerate(f, start=1):
+            stripped = line.strip()
+            if not stripped:
+                continue
+            try:
+                raw = json.loads(stripped)
+            except json.JSONDecodeError as exc:
+                raise ValueError(f"line {line_number}: invalid JSON — {exc}") from exc
+            inputs.append(_parse_document_dict(raw))
+    return inputs
+
+
 def _print_result(result: CuratedImportResult) -> None:
     p = result.preview
     mode = "DRY RUN — nothing written" if result.dry_run else "IMPORTED"
@@ -157,23 +190,36 @@ def _print_result(result: CuratedImportResult) -> None:
     _print("=" * 70)
 
 
-async def main(*, input_path: str, dry_run: bool) -> int:
+def _print_batch_outcomes(outcomes: list[BatchLineOutcome], *, dry_run: bool) -> None:
+    all_ok = all(o.ok for o in outcomes)
+    mode = "DRY RUN" if dry_run else ("IMPORTED" if all_ok else "REJECTED — nothing written")
+    _print("=" * 70, f"BATCH ({len(outcomes)} lines) — {mode}", "=" * 70)
+    for outcome in outcomes:
+        if outcome.ok:
+            p = outcome.result.preview if outcome.result else None
+            label = f"{p.law_short_name} ст.{p.article_number}" if p and p.kind == "law_article" else (p.document_number if p else "")
+            status = "duplicate (no-op)" if (p and p.would_skip_duplicate and not dry_run) else "ok"
+            _print(f"  line {outcome.line_number}: OK  {label}  [{status}]")
+        else:
+            _print(f"  line {outcome.line_number}: FAIL  {outcome.error}")
+    _print("=" * 70)
+    if not all_ok:
+        _print("At least one line failed — the ENTIRE batch was rejected. Fix the lines above and re-run.")
+
+
+async def _run_single(session_factory, *, input_path: str, dry_run: bool) -> int:
     try:
         parsed_input = _load_input(input_path)
     except (OSError, json.JSONDecodeError) as exc:
         _print(f"Could not read/parse {input_path}: {exc}")
         return 1
 
-    session_factory = get_session_factory()
     async with session_factory() as session:
         indexer = LegalChunkIndexer(session, get_embedding_provider())
         service = CuratedImportService(session, indexer=indexer)
 
         try:
-            if dry_run:
-                result = await service.preview(parsed_input)
-            else:
-                result = await service.import_document(parsed_input)
+            result = await service.preview(parsed_input) if dry_run else await service.import_document(parsed_input)
         except CuratedImportValidationError as exc:
             _print("VALIDATION FAILED — nothing written:")
             for error in exc.errors:
@@ -190,9 +236,42 @@ async def main(*, input_path: str, dry_run: bool) -> int:
         return 0
 
 
+async def _run_batch(session_factory, *, batch_path: str, dry_run: bool) -> int:
+    try:
+        parsed_inputs = _load_batch(batch_path)
+    except (OSError, ValueError) as exc:
+        _print(f"Could not read/parse {batch_path}: {exc}")
+        return 1
+
+    if not parsed_inputs:
+        _print(f"{batch_path} contains no document lines — nothing to do.")
+        return 1
+
+    async with session_factory() as session:
+        indexer = LegalChunkIndexer(session, get_embedding_provider())
+        service = CuratedImportService(session, indexer=indexer)
+
+        outcomes = await service.preview_batch(parsed_inputs) if dry_run else await service.import_batch(parsed_inputs)
+        _print_batch_outcomes(outcomes, dry_run=dry_run)
+
+        all_ok = all(o.ok for o in outcomes)
+        if not dry_run and all_ok:
+            await session.commit()
+        return 0 if all_ok else 1
+
+
+async def main(*, input_path: str | None, batch_path: str | None, dry_run: bool) -> int:
+    session_factory = get_session_factory()
+    if batch_path is not None:
+        return await _run_batch(session_factory, batch_path=batch_path, dry_run=dry_run)
+    return await _run_single(session_factory, input_path=input_path, dry_run=dry_run)  # type: ignore[arg-type]
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--input", required=True, help="Path to the input JSON file (see module docstring for shape)")
+    source_group = parser.add_mutually_exclusive_group(required=True)
+    source_group.add_argument("--input", help="Path to a single input JSON file (see module docstring for shape)")
+    source_group.add_argument("--batch", help="Path to a JSONL file, one document per line, same shape as --input")
     parser.add_argument("--dry-run", action="store_true", help="Preview only — no database writes")
     args = parser.parse_args()
-    sys.exit(asyncio.run(main(input_path=args.input, dry_run=args.dry_run)))
+    sys.exit(asyncio.run(main(input_path=args.input, batch_path=args.batch, dry_run=args.dry_run)))
