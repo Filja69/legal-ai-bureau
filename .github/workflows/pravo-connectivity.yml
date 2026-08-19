@@ -1,0 +1,36 @@
+name: Pravo.gov.ru Connectivity Check
+
+# STEP 1 ONLY -- connectivity proof for publication.pravo.gov.ru's official
+# API from a GitHub-hosted runner (a network path distinct from Railway and
+# this repo's local sandbox, both confirmed blocked -- see
+# docs/LEGAL-SOURCE-MATRIX.md). Manual-only, no schedule. No secrets, no DB
+# writes, no Railway/Vercel calls, no proxy/VPN/anti-bot workaround -- three
+# bounded, read-only GET requests and a sanitized artifact.
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  connectivity-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run pravo.gov.ru connectivity check
+        run: python .github/scripts/pravo_connectivity_check.py
+
+      - name: Upload sanitized results
+        uses: actions/upload-artifact@v4
+        with:
+          name: pravo-connectivity-results
+          path: pravo-connectivity-results.json
+          retention-days: 14
