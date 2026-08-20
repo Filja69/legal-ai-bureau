@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config.settings import get_settings
 from app.db.session import get_session
-from app.documents.storage.base import get_document_storage
+from app.documents.storage.base import DocumentStorageError, get_document_storage
 from app.documents.validation import DocumentValidationError, validate_upload
 from app.domains.documents.analysis import analyze_document
 from app.domains.documents.pipeline import DocumentIntelligenceEngine
@@ -107,7 +107,23 @@ async def upload_document(
         return duplicate
 
     document_id = uuid.uuid4()
-    storage_path = await get_document_storage().put(workspace_id, document_id, content, suffix=validated.suffix)
+    try:
+        storage_path = await get_document_storage().put(workspace_id, document_id, content, suffix=validated.suffix)
+    except DocumentStorageError as exc:
+        # P0 production incident: this was previously unguarded. An uncaught
+        # exception here is caught by Starlette's ServerErrorMiddleware,
+        # which sits OUTSIDE CORSMiddleware (see Starlette.build_middleware_stack:
+        # [ServerErrorMiddleware] + user_middleware([CORSMiddleware, ...]) +
+        # [ExceptionMiddleware]) — so the response it produces never gets
+        # CORS headers, and the browser reports a misleading "blocked by
+        # CORS policy" error for what is actually a storage failure. Raising
+        # a real HTTPException here instead routes the response through
+        # ExceptionMiddleware -> CORSMiddleware normally, headers intact.
+        # No Document row exists yet at this point — nothing to clean up.
+        logger.error("document_storage_put_failed", workspace_id=str(workspace_id), error_type=type(exc.__cause__ or exc).__name__)
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, "Сервис хранения документов временно недоступен — попробуйте позже."
+        ) from None
 
     document = Document(
         id=document_id,

@@ -11,7 +11,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from app.documents.storage.base import DocumentStorageConfigError, get_document_storage
+from app.documents.storage.base import DocumentStorageConfigError, DocumentStorageError, get_document_storage
 from app.documents.storage.local_storage import LocalDocumentStorage
 
 
@@ -175,3 +175,58 @@ def test_s3_storage_never_uses_client_filename_original_as_key():
     storage, _ = _s3_storage_with_mock_client()
     key = storage._key(uuid.uuid4(), uuid.uuid4(), ".txt")
     assert ".." not in key
+
+
+# --- P0 production incident regression: a raw botocore/OSError exception
+# must never escape put()/get()/delete() uncaught — see DocumentStorageError's
+# docstring for why an uncaught exception here broke CORS on the response. ---
+
+
+@pytest.mark.asyncio
+async def test_s3_storage_put_wraps_client_exception_in_document_storage_error():
+    storage, mock_client = _s3_storage_with_mock_client()
+    mock_client.put_object.side_effect = RuntimeError("AccessDenied: invalid credentials for bucket xyz")
+
+    with pytest.raises(DocumentStorageError) as exc_info:
+        await storage.put(uuid.uuid4(), uuid.uuid4(), b"content", suffix=".docx")
+
+    # The safe, logged message names the exception TYPE only — never the
+    # original botocore message, which could contain bucket/account details.
+    assert "RuntimeError" in str(exc_info.value)
+    assert "AccessDenied" not in str(exc_info.value)
+    assert "invalid credentials" not in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+async def test_s3_storage_get_wraps_client_exception_in_document_storage_error():
+    storage, mock_client = _s3_storage_with_mock_client()
+    mock_client.get_object.side_effect = RuntimeError("NoSuchKey")
+
+    with pytest.raises(DocumentStorageError):
+        await storage.get("workspace/document.pdf")
+
+
+@pytest.mark.asyncio
+async def test_s3_storage_delete_wraps_client_exception_in_document_storage_error():
+    storage, mock_client = _s3_storage_with_mock_client()
+    mock_client.delete_object.side_effect = RuntimeError("connection reset")
+
+    with pytest.raises(DocumentStorageError):
+        await storage.delete("workspace/document.pdf")
+
+
+@pytest.mark.asyncio
+async def test_local_storage_put_wraps_os_error_in_document_storage_error(tmp_path, monkeypatch):
+    import app.documents.storage.local_storage as local_storage_module
+
+    # A file (not a directory) at the workspace path makes mkdir(parents=True,
+    # exist_ok=True) raise a real OSError/NotADirectoryError — a realistic
+    # analogue of "disk full"/"permission denied" without needing root or a
+    # full filesystem to actually reproduce.
+    blocked_root = tmp_path / "blocked"
+    blocked_root.write_bytes(b"not a directory")
+    monkeypatch.setattr(local_storage_module, "_STORAGE_ROOT", blocked_root)
+    storage = LocalDocumentStorage()
+
+    with pytest.raises(DocumentStorageError):
+        await storage.put(uuid.uuid4(), uuid.uuid4(), b"content", suffix=".txt")

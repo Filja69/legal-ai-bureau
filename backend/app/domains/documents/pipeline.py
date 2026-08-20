@@ -17,7 +17,7 @@ from app.documents.chunking.chunker import build_chunks, content_hash
 from app.documents.extraction.base import ExtractionError, OcrRequiredError
 from app.documents.extraction.registry import get_extractor
 from app.models.matters import Document, DocumentChunk, DocumentStatus
-from app.rag.embeddings.base import EmbeddingProvider, embedding_namespace, get_embedding_provider
+from app.rag.embeddings.base import EmbeddingProvider, EmbeddingProviderError, embedding_namespace, get_embedding_provider
 
 logger = structlog.get_logger(__name__)
 
@@ -70,7 +70,23 @@ class DocumentIntelligenceEngine:
         await self._session.execute(delete(DocumentChunk).where(DocumentChunk.document_id == document.id))
 
         texts = [c.text for c in result.chunks]
-        embeddings = await self._embedding_provider.embed(texts) if texts else []
+        try:
+            embeddings = await self._embedding_provider.embed(texts) if texts else []
+        except EmbeddingProviderError as exc:
+            # P0 production incident: this was previously unguarded — an
+            # uncaught exception here left `document.status` stuck at
+            # PROCESSING forever (no chunks/extracted_text/processed_at were
+            # written yet at this point, so nothing to roll back) and, at
+            # the HTTP layer, produced a response with no CORS headers (see
+            # app/api/v1/documents.py's storage.put() handling for the full
+            # Starlette-middleware-ordering explanation — same mechanism).
+            # Same graceful-failure discipline as the extraction try/except
+            # above: mark FAILED with a real reason, never crash the request.
+            document.status = DocumentStatus.FAILED
+            document.processing_error = "Не удалось создать поисковый индекс для документа."
+            logger.error("document_embedding_failed", document_id=str(document.id), error_type=type(exc).__name__)
+            await self._session.flush()
+            return
         namespace = embedding_namespace(self._embedding_provider)
 
         for chunk, vector in zip(result.chunks, embeddings, strict=True):

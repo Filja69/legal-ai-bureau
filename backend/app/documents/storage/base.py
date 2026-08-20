@@ -41,6 +41,25 @@ class DocumentStorageConfigError(RuntimeError):
     """
 
 
+class DocumentStorageError(RuntimeError):
+    """A storage backend failed at RUNTIME (bad credentials, unreachable
+    endpoint, disk full, permission denied, ...) — distinct from
+    `DocumentStorageConfigError`, which is a boot-time misconfiguration.
+    Raised by `LocalDocumentStorage`/`S3DocumentStorage` with a message
+    that never includes credential values, bucket contents, or raw
+    provider tracebacks — safe to log and safe to derive a user-facing
+    detail from. The P0 production incident this exists for: an uncaught
+    `botocore` exception from `S3DocumentStorage.put()` propagated past
+    `CORSMiddleware` (Starlette's `ServerErrorMiddleware` sits OUTSIDE it —
+    see app/api/v1/documents.py's upload handler for the full explanation),
+    so the browser reported a misleading "CORS blocked" error for what was
+    actually an unhandled storage failure. Catching this exception INSIDE
+    the route handler and converting it to a real `HTTPException` is what
+    lets the response flow through `ExceptionMiddleware` -> `CORSMiddleware`
+    normally, with CORS headers intact.
+    """
+
+
 def get_document_storage() -> DocumentStorage:
     settings = get_settings()
     if settings.storage_provider == "local":

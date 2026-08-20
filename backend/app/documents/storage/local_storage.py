@@ -24,6 +24,8 @@ from __future__ import annotations
 import uuid
 from pathlib import Path
 
+from app.documents.storage.base import DocumentStorageError
+
 _STORAGE_ROOT = Path(__file__).resolve().parents[3] / "var" / "documents"
 
 # Matches the suffixes `app/documents/validation.py` allows — enforced again
@@ -47,9 +49,12 @@ class LocalDocumentStorage:
         """
         suffix = _safe_suffix(suffix)
         workspace_dir = _STORAGE_ROOT / str(workspace_id)
-        workspace_dir.mkdir(parents=True, exist_ok=True)
         path = workspace_dir / f"{document_id}{suffix}"
-        path.write_bytes(content)
+        try:
+            workspace_dir.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(content)
+        except OSError as exc:
+            raise DocumentStorageError(f"local disk write failed ({type(exc).__name__})") from exc
         return str(path)
 
     async def get(self, storage_key: str) -> bytes:

@@ -24,7 +24,7 @@ from __future__ import annotations
 import asyncio
 import uuid
 
-from app.documents.storage.base import DocumentStorageConfigError
+from app.documents.storage.base import DocumentStorageConfigError, DocumentStorageError
 
 
 class S3DocumentStorage:
@@ -56,15 +56,26 @@ class S3DocumentStorage:
 
     async def put(self, workspace_id: uuid.UUID, document_id: uuid.UUID, content: bytes, *, suffix: str) -> str:
         key = self._key(workspace_id, document_id, suffix)
-        await asyncio.to_thread(self._client.put_object, Bucket=self._bucket, Key=key, Body=content)
+        try:
+            await asyncio.to_thread(self._client.put_object, Bucket=self._bucket, Key=key, Body=content)
+        except Exception as exc:  # noqa: BLE001 — botocore's exception surface is broad (ClientError,
+            # EndpointConnectionError, NoCredentialsError, ParamValidationError, ...); the caller only
+            # needs to know storage failed, never the raw exception (see DocumentStorageError's docstring).
+            raise DocumentStorageError(f"S3 put_object failed ({type(exc).__name__})") from exc
         return key
 
     async def get(self, storage_key: str) -> bytes:
-        response = await asyncio.to_thread(self._client.get_object, Bucket=self._bucket, Key=storage_key)
-        return await asyncio.to_thread(response["Body"].read)
+        try:
+            response = await asyncio.to_thread(self._client.get_object, Bucket=self._bucket, Key=storage_key)
+            return await asyncio.to_thread(response["Body"].read)
+        except Exception as exc:  # noqa: BLE001 — see put()
+            raise DocumentStorageError(f"S3 get_object failed ({type(exc).__name__})") from exc
 
     async def delete(self, storage_key: str) -> None:
-        await asyncio.to_thread(self._client.delete_object, Bucket=self._bucket, Key=storage_key)
+        try:
+            await asyncio.to_thread(self._client.delete_object, Bucket=self._bucket, Key=storage_key)
+        except Exception as exc:  # noqa: BLE001 — see put()
+            raise DocumentStorageError(f"S3 delete_object failed ({type(exc).__name__})") from exc
 
     async def exists(self, storage_key: str) -> bool:
         from botocore.exceptions import ClientError  # noqa: PLC0415 — lazy, see module docstring
