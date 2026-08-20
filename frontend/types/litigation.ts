@@ -90,3 +90,64 @@ export interface CaseAnalysisSummary {
   contradiction_count: number;
   event_count: number;
 }
+
+// --- Case Result Summary (client-facing) ---
+
+export interface MoneyFlowTransaction {
+  payment_order_id: string;
+  document_id: string;
+  payment_date: string | null;
+  amount: string | null;
+  payer: string | null;
+  recipient: string | null;
+  referenced_contract_date: string | null;
+}
+
+export interface MoneyFlow {
+  transaction_count: number;
+  transactions: MoneyFlowTransaction[];
+  total_amount: string;
+  referenced_contract_dates: Record<string, number>;
+  referenced_contract_numbers: Record<string, number>;
+}
+
+export interface CaseSnapshot {
+  party_names: string[];
+  document_count: number;
+  payment_count: number;
+  total_amount: string;
+  key_dates: [string | null, string][];
+}
+
+export interface KeyFinding {
+  severity: string;
+  statement: string;
+  source_document_id: string;
+  source_document_title: string;
+  page_number: number | null;
+  excerpt: string;
+  confidence: string;
+  caveat: string | null;
+}
+
+export interface MissingEvidenceItem {
+  priority: string;
+  description: string;
+  why_it_matters: string;
+}
+
+export interface NextBestAction {
+  priority: number;
+  action: string;
+  why: string;
+}
+
+export interface CaseResultSummary {
+  case_snapshot: CaseSnapshot;
+  key_findings: KeyFinding[];
+  money_flow: MoneyFlow;
+  what_this_may_mean: string[];
+  missing_critical_evidence: MissingEvidenceItem[];
+  next_best_actions: NextBestAction[];
+  legal_kb_warning: string | null;
+}

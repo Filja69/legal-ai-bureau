@@ -9,6 +9,7 @@ import type {
   CaseEvent,
   CaseFact,
   CaseParty,
+  CaseResultSummary,
   EvidenceMatrixRow,
   PartyType,
   ProceduralRole,
@@ -83,5 +84,10 @@ export async function getCaseEvidenceMatrix(workspaceId: string, caseId: string)
 
 export async function analyzeCase(workspaceId: string, caseId: string): Promise<CaseAnalysisSummary> {
   const { data } = await apiClient.post<CaseAnalysisSummary>(`/api/v1/legal/cases/${caseId}/analyze`, {}, withWorkspace(workspaceId));
+  return data;
+}
+
+export async function getCaseResultSummary(workspaceId: string, caseId: string): Promise<CaseResultSummary> {
+  const { data } = await apiClient.get<CaseResultSummary>(`/api/v1/legal/cases/${caseId}/result-summary`, withWorkspace(workspaceId));
   return data;
 }

@@ -91,6 +91,38 @@ describe("CaseDetailView", () => {
     expect(screen.getByText(/explicitly out of scope/)).toBeInTheDocument();
   });
 
+  it("shows the compact result-summary block on Overview with real data, and the KB warning", async () => {
+    vi.spyOn(legalApi, "getCase").mockResolvedValue(baseCase());
+    vi.spyOn(litigationApi, "getCaseResultSummary").mockResolvedValue({
+      case_snapshot: { party_names: [], document_count: 3, payment_count: 2, total_amount: "4000000.00", key_dates: [] },
+      key_findings: [
+        {
+          severity: "HIGH",
+          statement: "The payer itself referenced a specific loan agreement…",
+          source_document_id: "d1", source_document_title: "payment_11.txt", page_number: 1,
+          excerpt: "…займа от 11.09.2024…", confidence: "Based only on the documented evidence above.",
+          caveat: "This evidence does not by itself establish that the contract was legally concluded.",
+        },
+      ],
+      money_flow: { transaction_count: 2, transactions: [], total_amount: "4000000.00", referenced_contract_dates: {}, referenced_contract_numbers: {} },
+      what_this_may_mean: ["Данные документы создают основание дополнительно проверять версию о существовании договорных отношений."],
+      missing_critical_evidence: [
+        { priority: "CRITICAL", description: "Подписанный экземпляр договора займа — не обнаружено среди загруженных материалов.", why_it_matters: "…" },
+      ],
+      next_best_actions: [{ priority: 1, action: "Поднять переписку сторон за сентябрь 2024.", why: "…" }],
+      legal_kb_warning: "Правовая квалификация пока ограничена: система выявила доказательственные факты и противоречия, но не подтверждает окончательную правовую позицию без проверенных норм права.",
+    });
+
+    render(<CaseDetailView caseId="case-1" />, { wrapper });
+    await waitFor(() => expect(screen.getByText("Главный вывод по делу")).toBeInTheDocument());
+
+    expect(screen.getByText(/The payer itself referenced a specific loan agreement/)).toBeInTheDocument();
+    expect(screen.getByText(/4000000\.00.*\(2 платеж\(ей\)\)/)).toBeInTheDocument();
+    expect(screen.getByText(/Подписанный экземпляр договора займа/)).toBeInTheDocument();
+    expect(screen.getByText(/Поднять переписку сторон/)).toBeInTheDocument();
+    expect(screen.getByText(/Правовая квалификация пока ограничена/)).toBeInTheDocument();
+  });
+
   it("timeline shows event date type badges (EXACT vs UNKNOWN)", async () => {
     vi.spyOn(legalApi, "getCase").mockResolvedValue(baseCase());
     vi.spyOn(litigationApi, "getCaseTimeline").mockResolvedValue([

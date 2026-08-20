@@ -11,6 +11,7 @@ import {
   attachCaseDocument,
   extractCaseFacts,
   getCaseEvidenceMatrix,
+  getCaseResultSummary,
   getCaseTimeline,
   listCaseContradictions,
   listCaseDocuments,
@@ -82,6 +83,12 @@ export function CaseDetailView({ caseId }: { caseId: string }) {
     queryKey: ["case", workspaceId, caseId, "documents"],
     queryFn: () => listCaseDocuments(workspaceId!, caseId),
     enabled: !!workspaceId,
+  });
+
+  const resultSummaryQuery = useQuery({
+    queryKey: ["case", workspaceId, caseId, "result-summary"],
+    queryFn: () => getCaseResultSummary(workspaceId!, caseId),
+    enabled: !!workspaceId && tab === "Overview",
   });
 
   const allDocumentsQuery = useQuery({
@@ -210,7 +217,45 @@ export function CaseDetailView({ caseId }: { caseId: string }) {
 
       <div className="mt-6">
         {tab === "Overview" && (
-          <dl className="grid grid-cols-2 gap-4 text-sm">
+          <div className="space-y-6">
+            {resultSummaryQuery.data && (
+              <div className="rounded border border-slate-800 bg-slate-900/50 p-4 text-sm">
+                <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-400">Главный вывод по делу</h2>
+                <dl className="mt-3 space-y-2">
+                  <div>
+                    <dt className="text-slate-500">Ключевое противоречие</dt>
+                    <dd className="text-slate-200">
+                      {resultSummaryQuery.data.key_findings[0]?.statement ?? "Не выявлено на текущих данных."}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-slate-500">Общая сумма платежей</dt>
+                    <dd className="text-slate-200">
+                      {resultSummaryQuery.data.money_flow.total_amount} ({resultSummaryQuery.data.money_flow.transaction_count} платеж(ей))
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-slate-500">Критически недостающий документ</dt>
+                    <dd className="text-slate-200">
+                      {resultSummaryQuery.data.missing_critical_evidence[0]?.description ?? "Не выявлено."}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-slate-500">Следующее действие</dt>
+                    <dd className="text-slate-200">
+                      {resultSummaryQuery.data.next_best_actions[0]?.action ?? "Недостаточно данных для рекомендации."}
+                    </dd>
+                  </div>
+                </dl>
+                {resultSummaryQuery.data.legal_kb_warning && (
+                  <p className="mt-3 border-t border-slate-800 pt-3 text-xs text-amber-400">
+                    {resultSummaryQuery.data.legal_kb_warning}
+                  </p>
+                )}
+              </div>
+            )}
+
+            <dl className="grid grid-cols-2 gap-4 text-sm">
             <div>
               <dt className="text-slate-500">Status</dt>
               <dd className="text-slate-200">{c.status}</dd>
@@ -231,7 +276,8 @@ export function CaseDetailView({ caseId }: { caseId: string }) {
               <dt className="text-slate-500">Documents attached</dt>
               <dd className="text-slate-200">{caseDocumentsQuery.data?.length ?? "—"}</dd>
             </div>
-          </dl>
+            </dl>
+          </div>
         )}
 
         {tab === "Documents" && (

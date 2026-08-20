@@ -14,10 +14,11 @@ from dataclasses import dataclass
 from datetime import date
 
 import structlog
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domains.litigation.allegation_extractor import ALLEGATION_ELIGIBLE_ROLES, extract_allegation_candidates
+from app.domains.litigation.case_result_summary import CaseResultSummary, build_case_result_summary
 from app.domains.litigation.contradiction_detector import (
     AllegationInput,
     ClaimEvidenceContradiction,
@@ -31,6 +32,7 @@ from app.domains.litigation.fact_dedup import CanonicalFact, deduplicate_facts
 from app.domains.litigation.fact_extractor import FactEvidenceCandidate, extract_fact_candidates
 from app.domains.litigation.payment_extractor import extract_payment_order_candidate
 from app.domains.litigation.timeline_builder import build_timeline
+from app.models.legal_knowledge import LawVersion
 from app.models.matters import (
     Case,
     CaseAllegation,
@@ -40,6 +42,7 @@ from app.models.matters import (
     CaseEvent,
     CaseFact,
     CaseFactEvidence,
+    CaseParty,
     CasePaymentOrder,
     Document,
     DocumentChunk,
@@ -413,3 +416,100 @@ class LitigationCaseEngine:
         await self.build_timeline(case)
         await self.extract_allegations(case)
         await self.extract_payment_orders(case)
+
+    async def _contract_amount_candidates(self, case_id: uuid.UUID) -> list[str]:
+        """AMOUNT facts whose evidence traces to a CONTRACT-role document —
+        reuses the already-existing generic fact_extractor output (it runs
+        against every ready document regardless of role) rather than adding
+        a new contract-specific extractor. Only used by the client-facing
+        summary's amount-mismatch conclusion.
+        """
+        contract_document_ids = {
+            cd.document_id
+            for cd in (
+                await self._session.execute(
+                    select(CaseDocument).where(CaseDocument.case_id == case_id, CaseDocument.role == CaseDocumentRole.CONTRACT)
+                )
+            ).scalars().all()
+        }
+        if not contract_document_ids:
+            return []
+
+        amount_facts = (
+            await self._session.execute(select(CaseFact).where(CaseFact.case_id == case_id, CaseFact.fact_type == FactType.AMOUNT))
+        ).scalars().all()
+        if not amount_facts:
+            return []
+        fact_by_id = {f.id: f for f in amount_facts}
+
+        evidence_rows = (
+            await self._session.execute(
+                select(CaseFactEvidence).where(
+                    CaseFactEvidence.case_fact_id.in_(fact_by_id.keys()),
+                    CaseFactEvidence.document_id.in_(contract_document_ids),
+                )
+            )
+        ).scalars().all()
+
+        values: set[str] = set()
+        for e in evidence_rows:
+            normalized_value = fact_by_id[e.case_fact_id].normalized_value
+            if normalized_value:
+                values.add(normalized_value)
+        return sorted(values)
+
+    async def get_result_summary(self, case: Case) -> CaseResultSummary:
+        """The client-facing Case Result Summary — computed at read time from
+        already-persisted E1-E4 data (run analyze()/extract_*() first, same
+        contract as get_claim_evidence_contradictions()/get_money_flow()).
+        Zero LLM calls; see case_result_summary.py's module docstring.
+        """
+        parties = (await self._session.execute(select(CaseParty).where(CaseParty.case_id == case.id))).scalars().all()
+
+        case_documents = (await self._session.execute(select(CaseDocument).where(CaseDocument.case_id == case.id))).scalars().all()
+        roles_present = {cd.role for cd in case_documents}
+        document_ids = {cd.document_id for cd in case_documents}
+        document_titles: dict[uuid.UUID, str] = {}
+        for document_id in document_ids:
+            document = await self._session.get(Document, document_id)
+            if document is not None:
+                document_titles[document_id] = document.title
+
+        events = (
+            await self._session.execute(
+                select(CaseEvent).where(CaseEvent.case_id == case.id).order_by(CaseEvent.event_date.is_(None), CaseEvent.event_date)
+            )
+        ).scalars().all()
+        key_dates = [(e.event_date, e.description) for e in events[:5]]
+
+        claim_evidence_contradictions = await self.get_claim_evidence_contradictions(case)
+        money_flow = await self.get_money_flow(case)
+
+        id_and_facts = await self._load_canonical_facts(case.id)
+        id_to_fact = dict(id_and_facts)
+        contradiction_rows = (
+            await self._session.execute(select(CaseContradiction).where(CaseContradiction.case_id == case.id))
+        ).scalars().all()
+        case_contradictions: list[ContradictionCandidate] = []
+        for row in contradiction_rows:
+            fact_a = id_to_fact.get(row.fact_a_id)
+            fact_b = id_to_fact.get(row.fact_b_id)
+            if fact_a is not None and fact_b is not None:
+                case_contradictions.append(ContradictionCandidate(row.contradiction_type, fact_a, fact_b, row.description))
+
+        contract_amount_candidates = await self._contract_amount_candidates(case.id)
+
+        kb_count = (await self._session.execute(select(func.count()).select_from(LawVersion))).scalar_one()
+
+        return build_case_result_summary(
+            party_names=[p.name for p in parties],
+            document_count=len(case_documents),
+            roles_present=roles_present,
+            key_dates=key_dates,
+            document_titles=document_titles,
+            claim_evidence_contradictions=claim_evidence_contradictions,
+            case_contradictions=case_contradictions,
+            money_flow=money_flow,
+            contract_amount_candidates=contract_amount_candidates,
+            kb_is_empty=kb_count == 0,
+        )

@@ -54,10 +54,15 @@ from app.schemas.litigation import (
     CasePartyCreate,
     CasePartyOut,
     CasePaymentOrderOut,
+    CaseResultSummaryOut,
+    CaseSnapshotOut,
     ClaimEvidenceContradictionOut,
     EvidenceMatrixRowOut,
+    KeyFindingOut,
+    MissingEvidenceItemOut,
     MoneyFlowOut,
     MoneyFlowTransactionOut,
+    NextBestActionOut,
 )
 from app.security.deps import get_current_user, get_workspace_id
 
@@ -584,6 +589,61 @@ async def get_case_analysis_summary(
         "payment_order_count": payment_order_count,
         "claim_evidence_contradiction_count": claim_evidence_contradiction_count,
     }
+
+
+# --- Case Result Summary (client-facing, template/deterministic synthesis
+# over already-persisted E1-E4 data — run POST /analyze first). ---
+
+
+@router.get("/cases/{case_id}/result-summary", response_model=CaseResultSummaryOut)
+async def get_case_result_summary(
+    case_id: uuid.UUID,
+    workspace_id: uuid.UUID = Depends(get_workspace_id),
+    user=Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> CaseResultSummaryOut:
+    case = await _get_case_or_404(session, workspace_id, case_id)
+    engine = LitigationCaseEngine(session)
+    summary = await engine.get_result_summary(case)
+    return CaseResultSummaryOut(
+        case_snapshot=CaseSnapshotOut(
+            party_names=summary.case_snapshot.party_names,
+            document_count=summary.case_snapshot.document_count,
+            payment_count=summary.case_snapshot.payment_count,
+            total_amount=summary.case_snapshot.total_amount,
+            key_dates=summary.case_snapshot.key_dates,
+        ),
+        key_findings=[
+            KeyFindingOut(
+                severity=f.severity, statement=f.statement, source_document_id=f.source_document_id,
+                source_document_title=f.source_document_title, page_number=f.page_number, excerpt=f.excerpt,
+                confidence=f.confidence, caveat=f.caveat,
+            )
+            for f in summary.key_findings
+        ],
+        money_flow=MoneyFlowOut(
+            transaction_count=summary.money_flow.transaction_count,
+            transactions=[
+                MoneyFlowTransactionOut(
+                    payment_order_id=t.payment_order_id, document_id=t.document_id, payment_date=t.payment_date,
+                    amount=t.amount, payer=t.payer, recipient=t.recipient, referenced_contract_date=t.referenced_contract_date,
+                )
+                for t in summary.money_flow.transactions
+            ],
+            total_amount=summary.money_flow.total_amount,
+            referenced_contract_dates=summary.money_flow.referenced_contract_dates,
+            referenced_contract_numbers=summary.money_flow.referenced_contract_numbers,
+        ),
+        what_this_may_mean=summary.what_this_may_mean,
+        missing_critical_evidence=[
+            MissingEvidenceItemOut(priority=i.priority, description=i.description, why_it_matters=i.why_it_matters)
+            for i in summary.missing_critical_evidence
+        ],
+        next_best_actions=[
+            NextBestActionOut(priority=a.priority, action=a.action, why=a.why) for a in summary.next_best_actions
+        ],
+        legal_kb_warning=summary.legal_kb_warning,
+    )
 
 
 # --- Explicitly out of scope this phase (brief §58's stop condition) ---

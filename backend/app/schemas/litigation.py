@@ -180,3 +180,47 @@ class ClaimEvidenceContradictionOut(BaseModel):
     reason: str
     caveat: str
     confidence: str
+
+
+# --- Case Result Summary (client-facing, template/deterministic synthesis) ---
+
+
+class CaseSnapshotOut(BaseModel):
+    party_names: list[str]
+    document_count: int
+    payment_count: int
+    total_amount: str
+    key_dates: list[tuple[date | None, str]]
+
+
+class KeyFindingOut(BaseModel):
+    severity: str
+    statement: str
+    source_document_id: uuid.UUID
+    source_document_title: str
+    page_number: int | None
+    excerpt: str
+    confidence: str
+    caveat: str | None
+
+
+class MissingEvidenceItemOut(BaseModel):
+    priority: str
+    description: str
+    why_it_matters: str
+
+
+class NextBestActionOut(BaseModel):
+    priority: int
+    action: str
+    why: str
+
+
+class CaseResultSummaryOut(BaseModel):
+    case_snapshot: CaseSnapshotOut
+    key_findings: list[KeyFindingOut]
+    money_flow: MoneyFlowOut
+    what_this_may_mean: list[str]
+    missing_critical_evidence: list[MissingEvidenceItemOut]
+    next_best_actions: list[NextBestActionOut]
+    legal_kb_warning: str | None
