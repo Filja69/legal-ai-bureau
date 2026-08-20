@@ -372,6 +372,14 @@ class ContradictionType(str, enum.Enum):
     DATE_MISMATCH = "date_mismatch"
     AMOUNT_MISMATCH = "amount_mismatch"
     PARTY_MISMATCH = "party_mismatch"
+    # Not written to case_contradictions.contradiction_type (no DB enum value,
+    # no migration) — this row is a Python-only value used exclusively by the
+    # CLAIM_VS_EVIDENCE dataclass computed at read time (see
+    # app/domains/litigation/contradiction_detector.py's
+    # detect_claim_vs_evidence_contradictions and pipeline.py's
+    # get_claim_evidence_contradictions), the same "computed, not persisted"
+    # pattern already used for EvidenceMatrixRow.
+    CLAIM_VS_EVIDENCE = "claim_vs_evidence"
     OTHER = "other"
 
 
@@ -389,3 +397,84 @@ class CaseContradiction(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     fact_a_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("case_facts.id", ondelete="CASCADE"), nullable=False)
     fact_b_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("case_facts.id", ondelete="CASCADE"), nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False)
+
+
+# --- E1-E4 (litigation evidence layer, curated-dataset-task companion brief):
+# case allegations (claims asserted BY a party in a pleading) and structured
+# payment-order facts. Both are deterministic-regex-extracted with the same
+# real-provenance discipline as CaseFact/CaseFactEvidence — nothing here is
+# ever LLM-inferred. CLAIM_VS_EVIDENCE contradictions between the two are
+# computed at read time (see ContradictionType.CLAIM_VS_EVIDENCE above),
+# never persisted as a CaseContradiction row, so no schema/enum change was
+# needed there. ---
+
+
+class AllegationType(str, enum.Enum):
+    """Deliberately narrow (brief: "Do NOT attempt open-ended LLM allegation
+    extraction yet") — five bounded categories, each backed by an explicit,
+    documented Russian regex pattern in
+    app/domains/litigation/allegation_extractor.py, not a free-text summary.
+    """
+
+    NO_CONTRACT = "no_contract"
+    NO_LEGAL_BASIS = "no_legal_basis"
+    UNJUST_ENRICHMENT = "unjust_enrichment"
+    PAYMENT_BY_MISTAKE = "payment_by_mistake"
+    FUTURE_CONTRACT_NEGOTIATIONS = "future_contract_negotiations"
+
+
+class CaseAllegation(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    """A claim/assertion literally found in a party's own pleading text
+    (typically a CLAIM/COURT_FILING/RESPONSE-role CaseDocument) — never an
+    LLM's summary of what a document "means". `statement_text` is the
+    matched sentence-level text; `excerpt` is the same bounded-radius
+    excerpt convention as CaseFactEvidence, for consistent UI rendering.
+    """
+
+    __tablename__ = "case_allegations"
+
+    workspace_id: Mapped[uuid.UUID] = workspace_fk()
+    case_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("cases.id", ondelete="CASCADE"), nullable=False, index=True)
+    document_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("documents.id", ondelete="CASCADE"), nullable=False)
+    chunk_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("document_chunks.id", ondelete="SET NULL"))
+    page_number: Mapped[int | None] = mapped_column(Integer)
+    statement_text: Mapped[str] = mapped_column(Text, nullable=False)
+    excerpt: Mapped[str] = mapped_column(Text, nullable=False)
+    allegation_type: Mapped[AllegationType] = mapped_column(pg_enum(AllegationType), nullable=False)
+
+
+class PaymentExecutionStatus(str, enum.Enum):
+    EXECUTED = "executed"
+    UNKNOWN = "unknown"
+
+
+class CasePaymentOrder(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    """One row per PAYMENT_DOCUMENT-role CaseDocument — structured fields
+    extracted deterministically from the payment order's own text, never
+    inferred. `referenced_contract_date`/`referenced_contract_number` are
+    exactly what the payment's own "Назначение платежа" text says, nothing
+    more — see app/domains/litigation/payment_extractor.py's module
+    docstring for why matching contract dates across payments is never
+    auto-treated as proof they're the same legal obligation.
+    """
+
+    __tablename__ = "case_payment_orders"
+
+    workspace_id: Mapped[uuid.UUID] = workspace_fk()
+    case_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("cases.id", ondelete="CASCADE"), nullable=False, index=True)
+    document_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("documents.id", ondelete="CASCADE"), nullable=False)
+    chunk_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("document_chunks.id", ondelete="SET NULL"))
+    page_number: Mapped[int | None] = mapped_column(Integer)
+
+    payment_date: Mapped[date | None] = mapped_column(Date)
+    amount: Mapped[str | None] = mapped_column(String(32))  # decimal-as-string, same convention as CaseFact.normalized_value
+    payer: Mapped[str | None] = mapped_column(String(255))
+    recipient: Mapped[str | None] = mapped_column(String(255))
+    payment_purpose: Mapped[str | None] = mapped_column(Text)
+    referenced_contract_type: Mapped[str | None] = mapped_column(String(128))
+    referenced_contract_date: Mapped[date | None] = mapped_column(Date)
+    referenced_contract_number: Mapped[str | None] = mapped_column(String(64))
+    execution_status: Mapped[PaymentExecutionStatus] = mapped_column(
+        pg_enum(PaymentExecutionStatus), default=PaymentExecutionStatus.UNKNOWN
+    )
+    excerpt: Mapped[str] = mapped_column(Text, nullable=False)

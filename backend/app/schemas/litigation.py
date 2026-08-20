@@ -5,7 +5,17 @@ from datetime import date, datetime
 
 from pydantic import BaseModel, ConfigDict
 
-from app.models.matters import CaseDocumentRole, ContradictionType, DateType, FactStatus, FactType, PartyType, ProceduralRole
+from app.models.matters import (
+    AllegationType,
+    CaseDocumentRole,
+    ContradictionType,
+    DateType,
+    FactStatus,
+    FactType,
+    PartyType,
+    PaymentExecutionStatus,
+    ProceduralRole,
+)
 
 
 class CasePartyCreate(BaseModel):
@@ -90,3 +100,83 @@ class EvidenceMatrixRowOut(BaseModel):
     strength: str
     reasons: list[str]
     corroboration_count: int
+
+
+# --- E1: case allegations ---
+
+
+class CaseAllegationOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    case_id: uuid.UUID
+    document_id: uuid.UUID
+    document_title: str
+    chunk_id: uuid.UUID | None
+    page_number: int | None
+    statement_text: str
+    excerpt: str
+    allegation_type: AllegationType
+    created_at: datetime | None = None
+
+
+# --- E3: structured payment orders ---
+
+
+class CasePaymentOrderOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    case_id: uuid.UUID
+    document_id: uuid.UUID
+    document_title: str
+    page_number: int | None
+    payment_date: date | None
+    amount: str | None
+    payer: str | None
+    recipient: str | None
+    payment_purpose: str | None
+    referenced_contract_type: str | None
+    referenced_contract_date: date | None
+    referenced_contract_number: str | None
+    execution_status: PaymentExecutionStatus
+    excerpt: str
+
+
+class MoneyFlowTransactionOut(BaseModel):
+    payment_order_id: uuid.UUID
+    document_id: uuid.UUID
+    payment_date: date | None
+    amount: str | None
+    payer: str | None
+    recipient: str | None
+    referenced_contract_date: date | None
+
+
+class MoneyFlowOut(BaseModel):
+    transaction_count: int
+    transactions: list[MoneyFlowTransactionOut]
+    total_amount: str
+    referenced_contract_dates: dict[str, int]
+    referenced_contract_numbers: dict[str, int]
+
+
+# --- E2: CLAIM_VS_EVIDENCE (computed, never persisted) ---
+
+
+class ClaimEvidenceContradictionOut(BaseModel):
+    contradiction_type: ContradictionType
+    allegation_id: uuid.UUID
+    allegation_document_id: uuid.UUID
+    allegation_document_title: str
+    allegation_page: int | None
+    allegation_excerpt: str
+    evidence_id: uuid.UUID
+    evidence_document_id: uuid.UUID
+    evidence_document_title: str
+    evidence_page: int | None
+    evidence_excerpt: str
+    referenced_contract_date: date | None
+    reason: str
+    caveat: str
+    confidence: str

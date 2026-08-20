@@ -10,31 +10,66 @@ from __future__ import annotations
 
 import uuid
 from collections import defaultdict
+from dataclasses import dataclass
+from datetime import date
 
 import structlog
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.domains.litigation.contradiction_detector import ContradictionCandidate, detect_contradictions
+from app.domains.litigation.allegation_extractor import ALLEGATION_ELIGIBLE_ROLES, extract_allegation_candidates
+from app.domains.litigation.contradiction_detector import (
+    AllegationInput,
+    ClaimEvidenceContradiction,
+    ContradictionCandidate,
+    PaymentOrderInput,
+    detect_claim_vs_evidence_contradictions,
+    detect_contradictions,
+)
 from app.domains.litigation.evidence_matrix import EvidenceMatrixRow, build_evidence_matrix
 from app.domains.litigation.fact_dedup import CanonicalFact, deduplicate_facts
 from app.domains.litigation.fact_extractor import FactEvidenceCandidate, extract_fact_candidates
+from app.domains.litigation.payment_extractor import extract_payment_order_candidate
 from app.domains.litigation.timeline_builder import build_timeline
 from app.models.matters import (
     Case,
+    CaseAllegation,
     CaseContradiction,
     CaseDocument,
+    CaseDocumentRole,
     CaseEvent,
     CaseFact,
     CaseFactEvidence,
+    CasePaymentOrder,
     Document,
     DocumentChunk,
     DocumentStatus,
     FactStatus,
     FactType,
+    PaymentExecutionStatus,
 )
 
 logger = structlog.get_logger(__name__)
+
+
+@dataclass
+class MoneyFlowTransaction:
+    payment_order_id: uuid.UUID
+    document_id: uuid.UUID
+    payment_date: date | None
+    amount: str | None
+    payer: str | None
+    recipient: str | None
+    referenced_contract_date: date | None
+
+
+@dataclass
+class MoneyFlowSummary:
+    transaction_count: int
+    transactions: list[MoneyFlowTransaction]
+    total_amount: str
+    referenced_contract_dates: dict[str, int]  # ISO date -> count of payments citing it
+    referenced_contract_numbers: dict[str, int]  # raw number string -> count (excludes payments with no number stated)
 
 
 class LitigationCaseEngine:
@@ -100,6 +135,168 @@ class LitigationCaseEngine:
             documents_skipped_not_ready=skipped_not_ready,
         )
         return persisted
+
+    async def _ready_case_documents(self, case_id: uuid.UUID, roles: set[CaseDocumentRole]) -> list[tuple[Document, list[DocumentChunk]]]:
+        case_documents = (
+            await self._session.execute(
+                select(CaseDocument).where(CaseDocument.case_id == case_id, CaseDocument.role.in_(roles))
+            )
+        ).scalars().all()
+
+        out: list[tuple[Document, list[DocumentChunk]]] = []
+        for case_document in case_documents:
+            document = await self._session.get(Document, case_document.document_id)
+            if document is None or document.status != DocumentStatus.READY:
+                continue
+            chunks = (
+                await self._session.execute(select(DocumentChunk).where(DocumentChunk.document_id == document.id))
+            ).scalars().all()
+            out.append((document, list(chunks)))
+        return out
+
+    async def extract_allegations(self, case: Case) -> list[CaseAllegation]:
+        """E1 — idempotent delete-then-insert, same pattern as extract_facts.
+        Only scans CLAIM/RESPONSE/COURT_FILING-role documents (see
+        allegation_extractor.ALLEGATION_ELIGIBLE_ROLES) — an allegation is an
+        assertion made BY a party in a pleading, not something to look for in
+        a payment order or a contract.
+        """
+        eligible_roles = {CaseDocumentRole(r) for r in ALLEGATION_ELIGIBLE_ROLES}
+        documents_with_chunks = await self._ready_case_documents(case.id, eligible_roles)
+
+        candidates = []
+        for document, chunks in documents_with_chunks:
+            for chunk in chunks:
+                candidates.extend(extract_allegation_candidates(document, chunk))
+
+        await self._session.execute(delete(CaseAllegation).where(CaseAllegation.case_id == case.id))
+        await self._session.flush()
+
+        persisted: list[CaseAllegation] = []
+        for candidate in candidates:
+            allegation = CaseAllegation(
+                workspace_id=case.workspace_id,
+                case_id=case.id,
+                document_id=candidate.document_id,
+                chunk_id=candidate.chunk_id,
+                page_number=candidate.page_number,
+                statement_text=candidate.statement_text,
+                excerpt=candidate.excerpt,
+                allegation_type=candidate.allegation_type,
+            )
+            self._session.add(allegation)
+            persisted.append(allegation)
+        await self._session.flush()
+
+        logger.info("case_allegations_extracted", case_id=str(case.id), workspace_id=str(case.workspace_id), count=len(persisted))
+        return persisted
+
+    async def extract_payment_orders(self, case: Case) -> list[CasePaymentOrder]:
+        """E3 — idempotent delete-then-insert. Only scans PAYMENT_DOCUMENT-
+        role documents. One candidate per (document, chunk) pair that
+        matched anything at all — see payment_extractor.py.
+        """
+        documents_with_chunks = await self._ready_case_documents(case.id, {CaseDocumentRole.PAYMENT_DOCUMENT})
+
+        candidates = []
+        for document, chunks in documents_with_chunks:
+            for chunk in chunks:
+                candidate = extract_payment_order_candidate(document, chunk)
+                if candidate is not None:
+                    candidates.append(candidate)
+
+        await self._session.execute(delete(CasePaymentOrder).where(CasePaymentOrder.case_id == case.id))
+        await self._session.flush()
+
+        persisted: list[CasePaymentOrder] = []
+        for candidate in candidates:
+            payment_order = CasePaymentOrder(
+                workspace_id=case.workspace_id,
+                case_id=case.id,
+                document_id=candidate.document_id,
+                chunk_id=candidate.chunk_id,
+                page_number=candidate.page_number,
+                payment_date=candidate.payment_date,
+                amount=candidate.amount,
+                payer=candidate.payer,
+                recipient=candidate.recipient,
+                payment_purpose=candidate.payment_purpose,
+                referenced_contract_type=candidate.referenced_contract_type,
+                referenced_contract_date=candidate.referenced_contract_date,
+                referenced_contract_number=candidate.referenced_contract_number,
+                execution_status=PaymentExecutionStatus(candidate.execution_status),
+                excerpt=candidate.excerpt,
+            )
+            self._session.add(payment_order)
+            persisted.append(payment_order)
+        await self._session.flush()
+
+        logger.info("case_payment_orders_extracted", case_id=str(case.id), workspace_id=str(case.workspace_id), count=len(persisted))
+        return persisted
+
+    async def get_claim_evidence_contradictions(self, case: Case) -> list[ClaimEvidenceContradiction]:
+        """E2 — computed at read time from already-persisted CaseAllegation/
+        CasePaymentOrder rows (run extract_allegations/extract_payment_orders
+        — or analyze() — first). Never persisted itself; see
+        ContradictionType.CLAIM_VS_EVIDENCE's docstring for why.
+        """
+        allegations = (await self._session.execute(select(CaseAllegation).where(CaseAllegation.case_id == case.id))).scalars().all()
+        payment_orders = (
+            await self._session.execute(select(CasePaymentOrder).where(CasePaymentOrder.case_id == case.id))
+        ).scalars().all()
+
+        allegation_inputs = [
+            AllegationInput(
+                id=a.id, document_id=a.document_id, page_number=a.page_number, excerpt=a.excerpt,
+                allegation_type=a.allegation_type,
+            )
+            for a in allegations
+        ]
+        payment_inputs = [
+            PaymentOrderInput(
+                id=p.id, document_id=p.document_id, page_number=p.page_number, excerpt=p.excerpt,
+                referenced_contract_type=p.referenced_contract_type, referenced_contract_date=p.referenced_contract_date,
+            )
+            for p in payment_orders
+        ]
+        return detect_claim_vs_evidence_contradictions(allegation_inputs, payment_inputs)
+
+    async def get_money_flow(self, case: Case) -> MoneyFlowSummary:
+        """Computed at read time from CasePaymentOrder rows — a total and a
+        grouping of referenced contract dates/numbers ONLY as a count of how
+        many payments cite each one. Deliberately does not merge same-dated
+        payments into "one obligation" — see payment_extractor.py's module
+        docstring on why that's a candidate-linkage question, not a fact.
+        """
+        payment_orders = (
+            await self._session.execute(
+                select(CasePaymentOrder).where(CasePaymentOrder.case_id == case.id).order_by(CasePaymentOrder.payment_date)
+            )
+        ).scalars().all()
+
+        transactions = [
+            MoneyFlowTransaction(
+                payment_order_id=p.id, document_id=p.document_id, payment_date=p.payment_date, amount=p.amount,
+                payer=p.payer, recipient=p.recipient, referenced_contract_date=p.referenced_contract_date,
+            )
+            for p in payment_orders
+        ]
+
+        total = sum((float(p.amount) for p in payment_orders if p.amount is not None), 0.0)
+
+        dates: dict[str, int] = {}
+        numbers: dict[str, int] = {}
+        for p in payment_orders:
+            if p.referenced_contract_date is not None:
+                key = p.referenced_contract_date.isoformat()
+                dates[key] = dates.get(key, 0) + 1
+            if p.referenced_contract_number is not None:
+                numbers[p.referenced_contract_number] = numbers.get(p.referenced_contract_number, 0) + 1
+
+        return MoneyFlowSummary(
+            transaction_count=len(transactions), transactions=transactions, total_amount=f"{total:.2f}",
+            referenced_contract_dates=dates, referenced_contract_numbers=numbers,
+        )
 
     async def _load_canonical_facts(self, case_id: uuid.UUID, fact_type: FactType | None = None) -> list[tuple[uuid.UUID, CanonicalFact]]:
         stmt = select(CaseFact).where(CaseFact.case_id == case_id)
@@ -206,8 +403,13 @@ class LitigationCaseEngine:
     async def analyze(self, case: Case) -> None:
         """One-shot convenience (brief §33's `POST /cases/{id}/analyze`):
         extract -> detect contradictions -> build timeline, in that
-        dependency order, all idempotent.
+        dependency order, all idempotent. Also runs E1/E3 allegation and
+        payment-order extraction, so get_claim_evidence_contradictions()/
+        get_money_flow() have something to read immediately afterward —
+        both stay read-only computed views, not run here.
         """
         await self.extract_facts(case)
         await self.detect_and_persist_contradictions(case)
         await self.build_timeline(case)
+        await self.extract_allegations(case)
+        await self.extract_payment_orders(case)
