@@ -11,7 +11,7 @@ import docx
 import pytest
 import sqlalchemy as sa
 
-from app.documents.storage.base import DocumentStorageError
+from app.documents.storage.base import DocumentStorageConfigError, DocumentStorageError
 from app.models.matters import DocumentChunk, DocumentStatus
 from app.rag.embeddings.base import EmbeddingProviderError
 from tests.security.auth_factories import make_org_and_workspace
@@ -120,6 +120,38 @@ async def test_real_docx_upload_completes_full_pipeline_to_ready(client, db_sess
 
 
 @pytest.mark.asyncio
+async def test_real_docx_upload_works_with_configured_persistent_volume_path(client, db_session, monkeypatch, tmp_path):
+    """Same full pipeline as test_real_docx_upload_completes_full_pipeline_to_ready,
+    but with LOCAL_STORAGE_PATH-style configuration active (the actual
+    Railway persistent-Volume scenario) instead of the repo-relative dev
+    default — proves the DOCX pipeline doesn't care which root is configured.
+    """
+    import app.documents.storage.local_storage as local_storage_module
+
+    monkeypatch.setattr(local_storage_module, "_STORAGE_ROOT", tmp_path / "persistent-volume-mount")
+
+    _org, workspace = await make_org_and_workspace(db_session)
+    await db_session.commit()
+    headers = {"X-Workspace-Id": str(workspace.id)}
+
+    files = {
+        "file": (
+            "loan_agreement.docx",
+            io.BytesIO(_synthetic_loan_docx()),
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        )
+    }
+    response = await client.post("/api/v1/legal/documents", files=files, headers=headers)
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["status"] == "ready"
+
+    text_response = await client.get(f"/api/v1/legal/documents/{body['id']}/text", headers=headers)
+    assert "ДОГОВОР ЗАЙМА" in text_response.json()["text"]
+
+
+@pytest.mark.asyncio
 async def test_storage_failure_returns_clean_503_with_cors_headers_not_generic_500(client, db_session, monkeypatch):
     """Reproduces the exact P0 mechanism: storage.put() raises. Before the
     fix this was an unhandled exception that produced a response with no
@@ -156,6 +188,38 @@ async def test_storage_failure_returns_clean_503_with_cors_headers_not_generic_5
     # No Document row was created — storage.put() fails before the row exists.
     list_response = await client.get("/api/v1/legal/documents", headers={"X-Workspace-Id": str(workspace.id)})
     assert list_response.json() == []
+
+
+@pytest.mark.asyncio
+async def test_storage_config_error_returns_clean_503_with_cors_headers(client, db_session, monkeypatch):
+    """The EXACT real production traceback: get_document_storage() itself
+    raises DocumentStorageConfigError (STORAGE_PROVIDER=s3 with no
+    STORAGE_BUCKET) while constructing the backend, before .put() is even
+    reached. Previously only DocumentStorageError (a sibling, not a parent,
+    class) was caught here — this exact exception type was still escaping
+    uncaught. Must produce the same clean, CORS-intact 503 as a runtime
+    storage failure, not the original CORS-masking bug.
+    """
+    _org, workspace = await make_org_and_workspace(db_session)
+    await db_session.commit()
+
+    def _broken_factory():
+        raise DocumentStorageConfigError("STORAGE_PROVIDER=s3 but STORAGE_BUCKET is not set.")
+
+    import app.api.v1.documents as documents_module
+
+    monkeypatch.setattr(documents_module, "get_document_storage", _broken_factory)
+
+    files = {"file": ("contract.txt", io.BytesIO(b"hello world"), "text/plain")}
+    response = await client.post(
+        "/api/v1/legal/documents",
+        files=files,
+        headers={"X-Workspace-Id": str(workspace.id), "Origin": "http://localhost:3000"},
+    )
+
+    assert response.status_code == 503
+    assert "STORAGE_BUCKET" not in response.json()["detail"]  # no raw config detail leaked to the client
+    assert response.headers.get("access-control-allow-origin") == "http://localhost:3000"
 
 
 @pytest.mark.asyncio

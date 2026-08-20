@@ -215,6 +215,92 @@ async def test_s3_storage_delete_wraps_client_exception_in_document_storage_erro
         await storage.delete("workspace/document.pdf")
 
 
+# --- Railway persistent Volume follow-up: LOCAL_STORAGE_PATH ---
+
+
+def test_resolve_storage_root_defaults_to_repo_relative_path_when_unset(monkeypatch):
+    import app.documents.storage.local_storage as local_storage_module
+    from app.config.settings import get_settings
+
+    monkeypatch.delenv("LOCAL_STORAGE_PATH", raising=False)
+    get_settings.cache_clear()
+    try:
+        assert local_storage_module._resolve_storage_root() == local_storage_module._DEFAULT_STORAGE_ROOT
+    finally:
+        get_settings.cache_clear()
+
+
+def test_resolve_storage_root_honors_configured_path(monkeypatch):
+    import app.documents.storage.local_storage as local_storage_module
+    from app.config.settings import get_settings
+
+    monkeypatch.setenv("LOCAL_STORAGE_PATH", "/data/documents")
+    get_settings.cache_clear()
+    try:
+        assert local_storage_module._resolve_storage_root() == local_storage_module.Path("/data/documents")
+    finally:
+        monkeypatch.delenv("LOCAL_STORAGE_PATH", raising=False)
+        get_settings.cache_clear()
+
+
+@pytest.mark.asyncio
+async def test_local_storage_put_get_roundtrip_with_custom_configured_root(tmp_path, monkeypatch):
+    """The actual Railway scenario: LOCAL_STORAGE_PATH set to a persistent
+    Volume's mount path, put() then get() both go through it correctly.
+    """
+    import app.documents.storage.local_storage as local_storage_module
+
+    custom_root = tmp_path / "persistent-volume-mount"
+    monkeypatch.setattr(local_storage_module, "_STORAGE_ROOT", custom_root)
+    storage = LocalDocumentStorage()
+    workspace_id, document_id = uuid.uuid4(), uuid.uuid4()
+
+    assert not custom_root.exists()  # directory doesn't exist yet — proves auto-creation, not a pre-made fixture dir
+    key = await storage.put(workspace_id, document_id, b"loan agreement content", suffix=".docx")
+
+    assert custom_root.exists()  # created automatically
+    assert key.startswith(str(custom_root))
+    assert await storage.get(key) == b"loan agreement content"
+
+
+@pytest.mark.asyncio
+async def test_local_storage_delete_with_custom_configured_root(tmp_path, monkeypatch):
+    import app.documents.storage.local_storage as local_storage_module
+
+    custom_root = tmp_path / "persistent-volume-mount"
+    monkeypatch.setattr(local_storage_module, "_STORAGE_ROOT", custom_root)
+    storage = LocalDocumentStorage()
+    workspace_id, document_id = uuid.uuid4(), uuid.uuid4()
+
+    key = await storage.put(workspace_id, document_id, b"content", suffix=".txt")
+    assert await storage.exists(key) is True
+    await storage.delete(key)
+    assert await storage.exists(key) is False
+
+
+@pytest.mark.asyncio
+async def test_local_storage_path_traversal_impossible_with_custom_configured_root(tmp_path, monkeypatch):
+    """Same brief §7 guarantee re-verified specifically against a
+    Volume-style configured root, not just the dev default — every path
+    component past the root is still a server-generated UUID.
+    """
+    import app.documents.storage.local_storage as local_storage_module
+
+    custom_root = tmp_path / "persistent-volume-mount"
+    monkeypatch.setattr(local_storage_module, "_STORAGE_ROOT", custom_root)
+    storage = LocalDocumentStorage()
+    workspace_id, document_id = uuid.uuid4(), uuid.uuid4()
+
+    key = await storage.put(workspace_id, document_id, b"content", suffix=".txt")
+
+    resolved = local_storage_module.Path(key).resolve()
+    assert str(custom_root.resolve()) in str(resolved)
+    assert ".." not in key
+    # The file must land exactly one level below the workspace directory,
+    # never anywhere else under (or worse, outside) the configured root.
+    assert resolved.parent == (custom_root / str(workspace_id)).resolve()
+
+
 @pytest.mark.asyncio
 async def test_local_storage_put_wraps_os_error_in_document_storage_error(tmp_path, monkeypatch):
     import app.documents.storage.local_storage as local_storage_module

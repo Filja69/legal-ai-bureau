@@ -7,6 +7,10 @@ path component — a client can send anything as `filename` (including
 path is built entirely from server-generated identifiers
 (`workspace_id`/`document_id`) plus a validated extension. The original
 filename is preserved only as metadata (`Document.original_filename`).
+This guarantee doesn't depend on WHERE `_STORAGE_ROOT` points — every path
+component under it is always a server-generated UUID, never client input,
+whether the root is the repo-relative dev default or an operator-configured
+persistent Volume mount path.
 
 Content/size/type validation happens in `app/documents/validation.py`
 before this module is ever called — this module trusts its caller already
@@ -18,6 +22,15 @@ so `S3DocumentStorage` can be swapped in via `STORAGE_PROVIDER=s3` without
 call sites caring which backend they're talking to. The on-disk path shape
 is unchanged from before this refactor — existing local `var/documents/`
 files continue to resolve correctly.
+
+P0 follow-up (Railway persistent Volume): `_STORAGE_ROOT`'s default value
+now comes from `Settings.local_storage_path` (env `LOCAL_STORAGE_PATH`) —
+set it to a mounted Volume's path so uploads survive redeploys/restarts,
+which a bare container filesystem does not guarantee. Left unset, behavior
+is byte-for-byte the same repo-relative `var/documents/` path as before
+this option existed. Deliberately NOT hardcoded to any specific platform's
+mount path (e.g. `/data/documents`) — the operator supplies that via the
+env var, so this module stays portable across hosts.
 """
 from __future__ import annotations
 
@@ -26,7 +39,22 @@ from pathlib import Path
 
 from app.documents.storage.base import DocumentStorageError
 
-_STORAGE_ROOT = Path(__file__).resolve().parents[3] / "var" / "documents"
+_DEFAULT_STORAGE_ROOT = Path(__file__).resolve().parents[3] / "var" / "documents"
+
+
+def _resolve_storage_root() -> Path:
+    from app.config.settings import get_settings
+
+    configured = get_settings().local_storage_path
+    return Path(configured) if configured else _DEFAULT_STORAGE_ROOT
+
+
+# Computed once at import time (settings are already loaded from the
+# environment by then, same convention as e.g. embedding_chunk.py's
+# _EMBEDDING_DIMENSION) — tests override this module attribute directly via
+# monkeypatch (unchanged pattern, see tests/unit/test_document_storage.py),
+# not by re-triggering this resolution after import.
+_STORAGE_ROOT = _resolve_storage_root()
 
 # Matches the suffixes `app/documents/validation.py` allows — enforced again
 # here as defense-in-depth so this module can never be made to write an

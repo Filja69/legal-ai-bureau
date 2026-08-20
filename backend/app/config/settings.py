@@ -51,6 +51,13 @@ class Settings(BaseSettings):
 
     storage_provider: str = Field(default="local")  # local | s3
     storage_bucket: str | None = Field(default=None)
+    # Only read when storage_provider="local". None (the default) preserves
+    # the pre-existing repo-relative var/documents/ path — local dev/test
+    # behavior is unaffected unless this is explicitly set. Set to a mounted
+    # persistent Volume's path (e.g. Railway) so uploads survive redeploys —
+    # a PaaS container filesystem is otherwise ephemeral (see
+    # app/documents/storage/base.py's DocumentStorage docstring).
+    local_storage_path: str | None = Field(default=None)
     # S3-compatible object storage (staging deployment target §9) — only read
     # when storage_provider="s3". Deliberately not bound to AWS-only naming
     # (S3_ENDPOINT_URL lets any S3-compatible provider be used, not just AWS).
