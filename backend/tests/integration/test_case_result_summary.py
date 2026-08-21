@@ -79,6 +79,26 @@ async def _build_adversarial_case(client, workspace_id) -> str:
     return case_id
 
 
+async def _build_case_with_contract(client, workspace_id, contract_text: str | None) -> str:
+    """A minimal case with just a claim (for the KB/analyze machinery to have
+    something to run against) and, optionally, one CONTRACT-role document —
+    used to isolate the contract-signature-status classification from the
+    rest of the adversarial fixture.
+    """
+    case_id = await _create_case(client, workspace_id, "Signature Status Test Case")
+    claim_id = await _upload_ready_document(client, workspace_id, "claim.txt", _CLAIM_TEXT)
+    await _attach(client, workspace_id, case_id, claim_id, "claim")
+
+    if contract_text is not None:
+        contract_doc_id = await _upload_ready_document(client, workspace_id, "contract.txt", contract_text)
+        await _attach(client, workspace_id, case_id, contract_doc_id, "contract")
+
+    headers = {"X-Workspace-Id": str(workspace_id)}
+    analyze = await client.post(f"/api/v1/legal/cases/{case_id}/analyze", headers=headers)
+    assert analyze.status_code == 200
+    return case_id
+
+
 @pytest.mark.asyncio
 async def test_result_summary_surfaces_high_contradiction_with_provenance(client, db_session):
     _org, workspace = await make_org_and_workspace(db_session)
@@ -265,3 +285,129 @@ async def test_client_facing_smoke_summary_answers_what_would_client_see(client,
         assert action["action"]
         assert action["why"]
     assert body["legal_kb_warning"] is not None
+
+
+# --- Contract signature status (fix for the production validation gap: a
+# CONTRACT-role document's mere presence previously suppressed the
+# missing-signed-copy item, even when the document itself said it was an
+# unsigned draft). ---
+
+
+def _find_signature_item(missing_items: list[dict]) -> dict | None:
+    for item in missing_items:
+        if "подписанный экземпляр договора" in item["description"].lower():
+            return item
+    return None
+
+
+@pytest.mark.asyncio
+async def test_only_draft_contract_still_shows_signed_copy_warning(client, db_session):
+    _org, workspace = await make_org_and_workspace(db_session)
+    await db_session.commit()
+    headers = {"X-Workspace-Id": str(workspace.id)}
+
+    draft_text = (
+        "ПРОЕКТ ДОГОВОРА ПРОЦЕНТНОГО ЗАЙМА б/н от 11.09.2024. Настоящий проект договора подготовлен для "
+        "целей согласования сторонами и не является подписанным экземпляром."
+    )
+    case_id = await _build_case_with_contract(client, workspace.id, draft_text)
+    response = await client.get(f"/api/v1/legal/cases/{case_id}/result-summary", headers=headers)
+    body = response.json()
+
+    item = _find_signature_item(body["missing_critical_evidence"])
+    assert item is not None
+    assert "contract.txt" in item["description"]
+    assert item["source_document_title"] == "contract.txt"
+    assert item["source_document_id"] is not None
+
+
+@pytest.mark.asyncio
+async def test_explicit_ne_podpisan_still_shows_signed_copy_warning(client, db_session):
+    _org, workspace = await make_org_and_workspace(db_session)
+    await db_session.commit()
+    headers = {"X-Workspace-Id": str(workspace.id)}
+
+    unsigned_text = "ДОГОВОР ПРОЦЕНТНОГО ЗАЙМА б/н от 11.09.2024. Договор не подписан со стороны Заемщика."
+    case_id = await _build_case_with_contract(client, workspace.id, unsigned_text)
+    response = await client.get(f"/api/v1/legal/cases/{case_id}/result-summary", headers=headers)
+    body = response.json()
+
+    item = _find_signature_item(body["missing_critical_evidence"])
+    assert item is not None
+    assert item["source_document_id"] is not None
+
+
+@pytest.mark.asyncio
+async def test_no_contract_document_shows_neutral_signed_copy_warning(client, db_session):
+    _org, workspace = await make_org_and_workspace(db_session)
+    await db_session.commit()
+    headers = {"X-Workspace-Id": str(workspace.id)}
+
+    case_id = await _build_case_with_contract(client, workspace.id, None)
+    response = await client.get(f"/api/v1/legal/cases/{case_id}/result-summary", headers=headers)
+    body = response.json()
+
+    item = _find_signature_item(body["missing_critical_evidence"])
+    assert item is not None
+    assert item["description"] == "Подтверждённый подписанный экземпляр договора не обнаружен среди загруженных материалов."
+    assert item["source_document_id"] is None
+
+
+@pytest.mark.asyncio
+async def test_contract_with_positive_signature_evidence_suppresses_warning(client, db_session):
+    _org, workspace = await make_org_and_workspace(db_session)
+    await db_session.commit()
+    headers = {"X-Workspace-Id": str(workspace.id)}
+
+    signed_text = (
+        "ДОГОВОР ПРОЦЕНТНОГО ЗАЙМА б/н от 11.09.2024. Договор подписан сторонами. Настоящий экземпляр "
+        "хранится у Займодавца."
+    )
+    case_id = await _build_case_with_contract(client, workspace.id, signed_text)
+    response = await client.get(f"/api/v1/legal/cases/{case_id}/result-summary", headers=headers)
+    body = response.json()
+
+    assert _find_signature_item(body["missing_critical_evidence"]) is None
+
+
+@pytest.mark.asyncio
+async def test_ambiguous_contract_shows_neutral_signed_copy_warning(client, db_session):
+    """Neither a draft/unsigned nor a signed-confirmation indicator appears
+    — the honest state is "unknown", phrased identically to the no-contract
+    case, never a guess in either direction.
+    """
+    _org, workspace = await make_org_and_workspace(db_session)
+    await db_session.commit()
+    headers = {"X-Workspace-Id": str(workspace.id)}
+
+    ambiguous_text = "ДОГОВОР ПРОЦЕНТНОГО ЗАЙМА б/н от 11.09.2024. Займодавец передает Заемщику денежные средства."
+    case_id = await _build_case_with_contract(client, workspace.id, ambiguous_text)
+    response = await client.get(f"/api/v1/legal/cases/{case_id}/result-summary", headers=headers)
+    body = response.json()
+
+    item = _find_signature_item(body["missing_critical_evidence"])
+    assert item is not None
+    assert item["description"] == "Подтверждённый подписанный экземпляр договора не обнаружен среди загруженных материалов."
+    # Provenance is only surfaced for the definitive draft/unsigned classification (positive text
+    # evidence found) — "unknown" is a genuinely ambiguous state, so no document is singled out.
+    assert item["source_document_id"] is None
+
+
+@pytest.mark.asyncio
+async def test_signature_status_never_yields_a_conclusion_the_contract_is_concluded_or_not(client, db_session):
+    _org, workspace = await make_org_and_workspace(db_session)
+    await db_session.commit()
+    headers = {"X-Workspace-Id": str(workspace.id)}
+
+    draft_text = "ПРОЕКТ ДОГОВОРА ПРОЦЕНТНОГО ЗАЙМА б/н от 11.09.2024. Черновик для внутреннего согласования."
+    case_id = await _build_case_with_contract(client, workspace.id, draft_text)
+    response = await client.get(f"/api/v1/legal/cases/{case_id}/result-summary", headers=headers)
+    body = response.json()
+
+    haystack = (
+        " ".join(item["description"] for item in body["missing_critical_evidence"]).lower()
+        + " ".join(body["what_this_may_mean"]).lower()
+    )
+    assert "договор не подписан" not in haystack
+    assert "договор был заключен между сторонами" not in haystack
+    assert "заключение договора подтверждено" not in haystack

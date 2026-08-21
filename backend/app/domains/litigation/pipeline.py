@@ -470,10 +470,18 @@ class LitigationCaseEngine:
         roles_present = {cd.role for cd in case_documents}
         document_ids = {cd.document_id for cd in case_documents}
         document_titles: dict[uuid.UUID, str] = {}
+        document_texts: dict[uuid.UUID, str] = {}
         for document_id in document_ids:
             document = await self._session.get(Document, document_id)
             if document is not None:
                 document_titles[document_id] = document.title
+                document_texts[document_id] = document.extracted_text or ""
+
+        contract_documents = [
+            (cd.document_id, document_titles.get(cd.document_id, "(deleted)"), document_texts.get(cd.document_id, ""))
+            for cd in case_documents
+            if cd.role == CaseDocumentRole.CONTRACT
+        ]
 
         events = (
             await self._session.execute(
@@ -511,5 +519,6 @@ class LitigationCaseEngine:
             case_contradictions=case_contradictions,
             money_flow=money_flow,
             contract_amount_candidates=contract_amount_candidates,
+            contract_documents=contract_documents,
             kb_is_empty=kb_count == 0,
         )

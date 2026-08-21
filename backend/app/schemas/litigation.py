@@ -208,6 +208,8 @@ class MissingEvidenceItemOut(BaseModel):
     priority: str
     description: str
     why_it_matters: str
+    source_document_id: uuid.UUID | None = None
+    source_document_title: str | None = None
 
 
 class NextBestActionOut(BaseModel):

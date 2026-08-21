@@ -636,7 +636,10 @@ async def get_case_result_summary(
         ),
         what_this_may_mean=summary.what_this_may_mean,
         missing_critical_evidence=[
-            MissingEvidenceItemOut(priority=i.priority, description=i.description, why_it_matters=i.why_it_matters)
+            MissingEvidenceItemOut(
+                priority=i.priority, description=i.description, why_it_matters=i.why_it_matters,
+                source_document_id=i.source_document_id, source_document_title=i.source_document_title,
+            )
             for i in summary.missing_critical_evidence
         ],
         next_best_actions=[

@@ -134,6 +134,8 @@ export interface MissingEvidenceItem {
   priority: string;
   description: string;
   why_it_matters: string;
+  source_document_id: string | null;
+  source_document_title: string | null;
 }
 
 export interface NextBestAction {

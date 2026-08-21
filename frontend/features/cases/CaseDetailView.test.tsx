@@ -107,7 +107,10 @@ describe("CaseDetailView", () => {
       money_flow: { transaction_count: 2, transactions: [], total_amount: "4000000.00", referenced_contract_dates: {}, referenced_contract_numbers: {} },
       what_this_may_mean: ["Данные документы создают основание дополнительно проверять версию о существовании договорных отношений."],
       missing_critical_evidence: [
-        { priority: "CRITICAL", description: "Подписанный экземпляр договора займа — не обнаружено среди загруженных материалов.", why_it_matters: "…" },
+        {
+          priority: "CRITICAL", description: "Подтверждённый подписанный экземпляр договора не обнаружен среди загруженных материалов.",
+          why_it_matters: "…", source_document_id: null, source_document_title: null,
+        },
       ],
       next_best_actions: [{ priority: 1, action: "Поднять переписку сторон за сентябрь 2024.", why: "…" }],
       legal_kb_warning: "Правовая квалификация пока ограничена: система выявила доказательственные факты и противоречия, но не подтверждает окончательную правовую позицию без проверенных норм права.",
@@ -118,7 +121,7 @@ describe("CaseDetailView", () => {
 
     expect(screen.getByText(/The payer itself referenced a specific loan agreement/)).toBeInTheDocument();
     expect(screen.getByText(/4000000\.00.*\(2 платеж\(ей\)\)/)).toBeInTheDocument();
-    expect(screen.getByText(/Подписанный экземпляр договора займа/)).toBeInTheDocument();
+    expect(screen.getByText(/Подтверждённый подписанный экземпляр договора не обнаружен/)).toBeInTheDocument();
     expect(screen.getByText(/Поднять переписку сторон/)).toBeInTheDocument();
     expect(screen.getByText(/Правовая квалификация пока ограничена/)).toBeInTheDocument();
   });

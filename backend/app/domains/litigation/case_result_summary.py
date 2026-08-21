@@ -22,6 +22,7 @@ document doesn't exist.
 """
 from __future__ import annotations
 
+import re
 import uuid
 from dataclasses import dataclass
 from datetime import date
@@ -67,6 +68,8 @@ class MissingEvidenceItem:
     priority: str  # CRITICAL
     description: str
     why_it_matters: str
+    source_document_id: uuid.UUID | None = None
+    source_document_title: str | None = None
 
 
 @dataclass
@@ -87,14 +90,97 @@ class CaseResultSummary:
     legal_kb_warning: str | None
 
 
-_SIGNED_CONTRACT_ITEM = MissingEvidenceItem(
+# --- Contract signature status (fix for the production validation gap: a
+# CONTRACT-role document's mere presence was previously treated as if the
+# signed-copy question were resolved, even when the document's own text
+# says it's an unsigned draft). Three-state, computed from the CONTRACT-role
+# document(s)' own text via bounded, conservative regex — never inferred
+# from role presence alone. No extractor in this codebase currently detects
+# POSITIVE signature evidence beyond the narrow confirmations below, so
+# "confirmed_signed" only fires on an explicit, unambiguous statement; the
+# default for an ordinary (unmarked) contract document is "unknown", never
+# a silent "signed".
+_DRAFT_UNSIGNED_PATTERN = re.compile(
+    r"проект\s+договора"
+    r"|черновик"
+    r"|не\s+являет[а-я]*\s+подписанным\s+экземпляром"
+    r"|не\s+подписан[а-я]*"
+    r"|подписанный\s+экземпляр\s+не\s+предоставлен",
+    re.IGNORECASE,
+)
+_SIGNED_CONFIRMATION_PATTERN = re.compile(
+    r"договор\s+подписан[а-я]*\s+сторонами"
+    r"|подписанный\s+экземпляр\s+договора\s+прилагается"
+    r"|стороны\s+подписали\s+договор",
+    re.IGNORECASE,
+)
+
+
+def _classify_contract_signature(
+    contract_documents: list[tuple[uuid.UUID, str, str]],
+) -> tuple[str, uuid.UUID | None, str | None]:
+    """contract_documents: (document_id, title, extracted_text) for every
+    CONTRACT-role CaseDocument. Returns (status, causing_document_id,
+    causing_document_title) — status is one of "no_contract_document",
+    "unsigned_or_draft", "confirmed_signed", "unknown". Draft/unsigned
+    indicators are checked before signed-confirmation ones, so a document
+    that (contradictorily) contains both is conservatively treated as
+    unsigned/draft rather than signed.
+    """
+    if not contract_documents:
+        return "no_contract_document", None, None
+    for document_id, title, text in contract_documents:
+        if text and _DRAFT_UNSIGNED_PATTERN.search(text):
+            return "unsigned_or_draft", document_id, title
+    for document_id, title, text in contract_documents:
+        if text and _SIGNED_CONFIRMATION_PATTERN.search(text):
+            return "confirmed_signed", document_id, title
+    first_id, first_title, _ = contract_documents[0]
+    return "unknown", first_id, first_title
+
+
+_NO_CONTRACT_DOCUMENT_ITEM = MissingEvidenceItem(
     priority="CRITICAL",
-    description=(
-        "Подписанный экземпляр договора займа либо подтверждение его направления контрагенту — "
-        "не обнаружено среди загруженных материалов."
-    ),
+    description="Подтверждённый подписанный экземпляр договора не обнаружен среди загруженных материалов.",
     why_it_matters="Без подписанного экземпляра или подтверждения его направления факт согласования условий займа остаётся недоказанным.",
 )
+_UNKNOWN_SIGNATURE_ITEM = MissingEvidenceItem(
+    priority="CRITICAL",
+    description="Подтверждённый подписанный экземпляр договора не обнаружен среди загруженных материалов.",
+    why_it_matters="Прикреплённый договорный документ не содержит однозначного подтверждения подписания сторонами.",
+)
+
+
+def _draft_contract_item(document_id: uuid.UUID, document_title: str) -> MissingEvidenceItem:
+    return MissingEvidenceItem(
+        priority="CRITICAL",
+        description=(
+            f"Прикреплённый договорный документ («{document_title}») по собственному тексту является проектом "
+            "или содержит указание на отсутствие подписи — подтверждённый подписанный экземпляр договора не "
+            "обнаружен среди загруженных материалов."
+        ),
+        why_it_matters=(
+            "Без подписанного экземпляра или подтверждения его направления факт согласования условий займа "
+            "остаётся недоказанным."
+        ),
+        source_document_id=document_id,
+        source_document_title=document_title,
+    )
+
+
+def _signed_contract_missing_item(
+    status: str, document_id: uuid.UUID | None, document_title: str | None
+) -> MissingEvidenceItem | None:
+    if status == "no_contract_document":
+        return _NO_CONTRACT_DOCUMENT_ITEM
+    if status == "unsigned_or_draft":
+        assert document_id is not None and document_title is not None  # guaranteed by _classify_contract_signature
+        return _draft_contract_item(document_id, document_title)
+    if status == "unknown":
+        return _UNKNOWN_SIGNATURE_ITEM
+    return None  # confirmed_signed — the one case where the item is genuinely resolved
+
+
 _CORRESPONDENCE_ITEM = MissingEvidenceItem(
     priority="CRITICAL",
     description=(
@@ -127,11 +213,16 @@ _REPAYMENT_ITEM = MissingEvidenceItem(
 
 
 def _build_missing_evidence(
-    roles_present: set[CaseDocumentRole], payment_directions: set[tuple[str, str]]
+    roles_present: set[CaseDocumentRole],
+    payment_directions: set[tuple[str, str]],
+    signature_status: str,
+    signature_document_id: uuid.UUID | None,
+    signature_document_title: str | None,
 ) -> list[MissingEvidenceItem]:
     items: list[MissingEvidenceItem] = []
-    if CaseDocumentRole.CONTRACT not in roles_present:
-        items.append(_SIGNED_CONTRACT_ITEM)
+    signed_item = _signed_contract_missing_item(signature_status, signature_document_id, signature_document_title)
+    if signed_item is not None:
+        items.append(signed_item)
     if CaseDocumentRole.CORRESPONDENCE not in roles_present:
         items.append(_CORRESPONDENCE_ITEM)
     if CaseDocumentRole.ACT not in roles_present:
@@ -147,7 +238,7 @@ def _build_missing_evidence(
 
 def _build_what_this_may_mean(
     claim_evidence_contradictions: list[ClaimEvidenceContradiction],
-    missing_items: list[MissingEvidenceItem],
+    signature_status: str,
     contract_amount_candidates: list[str],
     money_flow_total: str,
     has_multi_payment_same_contract_date: bool,
@@ -162,7 +253,10 @@ def _build_what_this_may_mean(
             "Назначение платежа само по себе не доказывает заключение договора — требуется дополнительная "
             "проверка иных обстоятельств и документов."
         )
-    if _SIGNED_CONTRACT_ITEM in missing_items:
+    # Never "договор не подписан" as a flat statement here — signature_status
+    # being anything other than "confirmed_signed" means the question is
+    # open, not that the contract IS unsigned (see _classify_contract_signature).
+    if signature_status != "confirmed_signed":
         conclusions.append("Отсутствие подтверждённого подписанного экземпляра договора остаётся существенным неразрешённым вопросом.")
     for contract_amount in contract_amount_candidates:
         if contract_amount != money_flow_total:
@@ -231,6 +325,7 @@ def build_case_result_summary(
     case_contradictions: list[ContradictionCandidate],
     money_flow: MoneyFlowSummary,
     contract_amount_candidates: list[str],
+    contract_documents: list[tuple[uuid.UUID, str, str]],
     kb_is_empty: bool,
 ) -> CaseResultSummary:
     case_snapshot = CaseSnapshot(
@@ -272,12 +367,16 @@ def build_case_result_summary(
         )
     key_findings = key_findings[:5]
 
+    signature_status, signature_document_id, signature_document_title = _classify_contract_signature(contract_documents)
+
     payment_directions = {(t.payer, t.recipient) for t in money_flow.transactions if t.payer and t.recipient}
-    missing_items = _build_missing_evidence(roles_present, payment_directions)
+    missing_items = _build_missing_evidence(
+        roles_present, payment_directions, signature_status, signature_document_id, signature_document_title
+    )
 
     has_multi_payment_same_date = any(count > 1 for count in money_flow.referenced_contract_dates.values())
     what_this_may_mean = _build_what_this_may_mean(
-        claim_evidence_contradictions, missing_items, contract_amount_candidates, money_flow.total_amount, has_multi_payment_same_date
+        claim_evidence_contradictions, signature_status, contract_amount_candidates, money_flow.total_amount, has_multi_payment_same_date
     )
 
     next_best_actions = _build_next_best_actions(missing_items, claim_evidence_contradictions, money_flow)
