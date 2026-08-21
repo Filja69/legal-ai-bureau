@@ -36,6 +36,14 @@ pypdf = "^6.15.0"
 python-docx = "^1.2.0"
 openpyxl = "^3.1.5"
 boto3 = "^1.43.72"
+# OCR fallback for scanned PDFs (app/documents/ocr/) — pytesseract calls the
+# `tesseract` system binary (installed via nixpacks.toml in production;
+# absent in local dev/CI degrades gracefully, see ocr/registry.py).
+# pypdfium2 rasterizes PDF pages to images without needing poppler-utils —
+# its prebuilt binary ships inside the wheel itself.
+pytesseract = "^0.3.13"
+pypdfium2 = "^4.30.0"
+pillow = "^10.4.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.2.0"

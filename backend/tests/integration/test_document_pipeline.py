@@ -63,8 +63,14 @@ async def test_pdf_upload_with_text_layer_processes_to_ready(client, db_session)
 
 
 @pytest.mark.asyncio
-async def test_scanned_pdf_reports_ocr_required_honestly(client, db_session):
+async def test_scanned_pdf_reports_ocr_required_honestly(client, db_session, monkeypatch):
+    # Explicit — must stay true even once a real OCR engine is installed
+    # (Railway); see test_scanned_pdf_with_ocr_available_reaches_ready below
+    # for that path.
+    import app.documents.extraction.pdf_extractor as pdf_extractor_module
     from tests.helpers.sample_files import build_blank_pdf
+
+    monkeypatch.setattr(pdf_extractor_module, "get_ocr_engine", lambda: None)
 
     _org, workspace = await make_org_and_workspace(db_session)
     await db_session.commit()
@@ -74,6 +80,75 @@ async def test_scanned_pdf_reports_ocr_required_honestly(client, db_session):
     body = response.json()
     assert body["status"] == "ocr_required"
     assert body["processing_error"] is not None
+
+
+@pytest.mark.asyncio
+async def test_scanned_pdf_with_ocr_available_reaches_ready(client, db_session, monkeypatch):
+    """P0: end-to-end proof that a scanned PDF, with OCR available, reaches
+    READY with real (here: fake-engine-supplied) Russian text — not just
+    the extractor-level unit test, the full upload -> process -> READY ->
+    GET /text roundtrip through the real API and a real Postgres row.
+    """
+    import app.documents.extraction.pdf_extractor as pdf_extractor_module
+    from tests.helpers.sample_files import build_blank_pdf
+
+    class _FakeOcrEngine:
+        async def ocr_image(self, image_bytes: bytes) -> str:
+            return "Договор процентного займа между сторонами от 11.09.2024"
+
+    monkeypatch.setattr(pdf_extractor_module, "get_ocr_engine", lambda: _FakeOcrEngine())
+
+    _org, workspace = await make_org_and_workspace(db_session)
+    await db_session.commit()
+    headers = {"X-Workspace-Id": str(workspace.id)}
+
+    response = await _upload(client, workspace.id, "scan.pdf", build_blank_pdf(), "application/pdf")
+    assert response.status_code == 201
+    body = response.json()
+    assert body["status"] == "ready"
+    assert body["doc_metadata"]["extractor"] == "pypdf+tesseract"
+
+    text_response = await client.get(f"/api/v1/legal/documents/{body['id']}/text", headers=headers)
+    assert text_response.status_code == 200
+    assert "Договор процентного займа" in text_response.json()["text"]
+
+
+@pytest.mark.asyncio
+async def test_ocr_recovered_text_reaches_the_allegation_extractor(client, db_session, monkeypatch):
+    """P0 acceptance criterion: E1 (allegation extraction) must see OCR'd
+    text exactly like native text — attaches an OCR-recovered scanned
+    "claim" document to a real Case and confirms NO_CONTRACT is found,
+    proving the text actually reached the litigation pipeline, not just
+    the /text endpoint.
+    """
+    import app.documents.extraction.pdf_extractor as pdf_extractor_module
+    from tests.helpers.sample_files import build_blank_pdf
+
+    class _FakeOcrEngine:
+        async def ocr_image(self, image_bytes: bytes) -> str:
+            return "Договор займа не был заключён сторонами."
+
+    monkeypatch.setattr(pdf_extractor_module, "get_ocr_engine", lambda: _FakeOcrEngine())
+
+    _org, workspace = await make_org_and_workspace(db_session)
+    await db_session.commit()
+    headers = {"X-Workspace-Id": str(workspace.id)}
+
+    upload_response = await _upload(client, workspace.id, "scan_claim.pdf", build_blank_pdf(), "application/pdf")
+    assert upload_response.json()["status"] == "ready"
+    document_id = upload_response.json()["id"]
+
+    case_response = await client.post("/api/v1/legal/cases", json={"title": "OCR allegation test"}, headers=headers)
+    case_id = case_response.json()["id"]
+    attach_response = await client.post(
+        f"/api/v1/legal/cases/{case_id}/documents", json={"document_id": document_id, "role": "claim"}, headers=headers
+    )
+    assert attach_response.status_code == 201
+
+    extract_response = await client.post(f"/api/v1/legal/cases/{case_id}/allegations/extract", headers=headers)
+    assert extract_response.status_code == 200
+    allegations = extract_response.json()
+    assert any(a["allegation_type"] == "no_contract" for a in allegations)
 
 
 @pytest.mark.asyncio

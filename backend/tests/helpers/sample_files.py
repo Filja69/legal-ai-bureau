@@ -59,6 +59,54 @@ def build_blank_pdf(*, page_count: int = 1) -> bytes:
     return _assemble_pdf(objects)
 
 
+def build_mixed_pdf(pages: list[str | None]) -> bytes:
+    """A valid multi-page PDF where each page independently either has a
+    real text content stream (`pages[i]` is a string) or none at all
+    (`pages[i]` is `None`) — the fixture for testing that OCR is applied
+    per-page: a document with some native-text pages and some scanned pages
+    mixed together, exactly like a real multi-page filing where only some
+    pages were scanned. See `build_minimal_pdf`'s Latin-1 note — the same
+    limitation applies to any non-`None` page here.
+    """
+    objects: list[bytes] = []
+    objects.append(b"<< /Type /Catalog /Pages 2 0 R >>")
+
+    page_obj_ids = list(range(3, 3 + len(pages)))
+    kids = " ".join(f"{pid} 0 R" for pid in page_obj_ids)
+    objects.append(f"<< /Type /Pages /Kids [{kids}] /Count {len(pages)} >>".encode())
+
+    # Only non-blank pages get a content-stream object at all (a blank page
+    # has no /Contents key, matching build_blank_pdf) — so content-object
+    # IDs must be allocated only for those, in the exact order they'll be
+    # emitted below, not one slot per page regardless of whether it's blank.
+    font_obj_id = 3 + len(pages)
+    content_obj_id_by_index: dict[int, int] = {}
+    next_id = font_obj_id + 1
+    for i, text in enumerate(pages):
+        if text is not None:
+            content_obj_id_by_index[i] = next_id
+            next_id += 1
+
+    for i, text in enumerate(pages):
+        if text is None:
+            objects.append(b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 300] >>")
+        else:
+            objects.append(
+                (
+                    f"<< /Type /Page /Parent 2 0 R /Resources << /Font << /F1 {font_obj_id} 0 R >> >> "
+                    f"/MediaBox [0 0 300 300] /Contents {content_obj_id_by_index[i]} 0 R >>"
+                ).encode()
+            )
+    objects.append(b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>")
+    for text in pages:
+        if text is None:
+            continue
+        stream_content = f"BT /F1 12 Tf 20 250 Td ({text}) Tj ET".encode("latin-1")
+        objects.append(b"<< /Length %d >>\nstream\n" % len(stream_content) + stream_content + b"\nendstream")
+
+    return _assemble_pdf(objects)
+
+
 def _assemble_pdf(objects: list[bytes]) -> bytes:
     out = bytearray()
     out += b"%PDF-1.4\n"

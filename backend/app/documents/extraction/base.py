@@ -23,15 +23,29 @@ class ExtractionError(Exception):
 
 
 class OcrRequiredError(ExtractionError):
-    """Raised specifically when a PDF has no extractable text layer (a scan).
-    Distinct from `ExtractionError` so the pipeline can map it to the honest
-    `OCR_REQUIRED` status (brief §4) instead of `FAILED` — this is not a
-    processing failure, it's an accurate statement that OCR (not implemented
-    this phase) would be required to read this file.
+    """Raised when a PDF has no extractable text layer AND OCR was never
+    attempted on it — either OCR is disabled/unavailable in this
+    environment (see `app/documents/ocr/registry.py`), or the document
+    exceeds `Settings.ocr_max_pages_per_document`. Maps to `OCR_REQUIRED`
+    (not `FAILED`): this states "OCR would help and wasn't run", not "OCR
+    was run and it didn't work" — see `OcrFailedError` for that case.
     """
 
     def __init__(self, message: str = "This PDF has no extractable text layer (appears to be a scanned image).") -> None:
         super().__init__("OCR_REQUIRED", message)
+
+
+class OcrFailedError(ExtractionError):
+    """Raised when OCR WAS attempted (on at least one page) and the
+    document still ends up with zero pages of usable text — either every
+    OCR call errored (Tesseract crashed, corrupted rasterized image) or
+    every attempt technically succeeded but produced illegible/empty
+    output. Maps to `FAILED`, not `OCR_REQUIRED` — re-running OCR on the
+    exact same file is not expected to fix this on its own.
+    """
+
+    def __init__(self, message: str = "OCR was attempted but produced no readable text.") -> None:
+        super().__init__("OCR_FAILED", message)
 
 
 @dataclass

@@ -66,6 +66,19 @@ class Settings(BaseSettings):
     s3_secret_access_key: str | None = Field(default=None)
     s3_region: str = Field(default="us-east-1")
 
+    # OCR (scanned-PDF fallback) — self-hosted Tesseract only, see
+    # app/documents/ocr/tesseract_engine.py for why this is never a cloud
+    # OCR API or an LLM vision call. Disabled entirely still degrades
+    # gracefully to the pre-existing OCR_REQUIRED status, never a crash.
+    ocr_enabled: bool = Field(default=True)
+    ocr_language: str = Field(default="rus+eng")
+    ocr_dpi: int = Field(default=200)
+    # Hard ceiling, not a performance tuning knob (same "fails closed rather
+    # than silently degrading" philosophy as embedding_max_documents_per_reindex
+    # below) — OCR runs synchronously inside the upload request, so an
+    # unbounded page count could hang it indefinitely.
+    ocr_max_pages_per_document: int = Field(default=30)
+
     legal_source_official_law_base_url: str = Field(default="https://pravo.gov.ru")
     legal_source_court_base_url: str = Field(default="https://kad.arbitr.ru")
     legal_source_commercial_db_enabled: bool = Field(default=False)
