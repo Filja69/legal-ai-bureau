@@ -29,6 +29,24 @@ async def test_local_storage_put_get_roundtrip(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_local_storage_get_missing_file_raises_document_storage_error(tmp_path, monkeypatch):
+    """Found while validating OCR reprocessing (P0): get() previously let a
+    raw FileNotFoundError escape uncaught — unlike put(), and unlike
+    S3DocumentStorage.get(), which already wrapped read failures. A missing
+    file on the Volume (or any other on-disk read failure) must surface as
+    the same honest DocumentStorageError put() already raises, not a raw
+    exception that reaches the API layer unguarded.
+    """
+    import app.documents.storage.local_storage as local_storage_module
+
+    monkeypatch.setattr(local_storage_module, "_STORAGE_ROOT", tmp_path)
+    storage = LocalDocumentStorage()
+
+    with pytest.raises(DocumentStorageError):
+        await storage.get(str(tmp_path / "nonexistent" / "does_not_exist.pdf"))
+
+
+@pytest.mark.asyncio
 async def test_local_storage_delete(tmp_path, monkeypatch):
     import app.documents.storage.local_storage as local_storage_module
 

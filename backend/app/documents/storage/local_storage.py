@@ -86,7 +86,20 @@ class LocalDocumentStorage:
         return str(path)
 
     async def get(self, storage_key: str) -> bytes:
-        return Path(storage_key).read_bytes()
+        """Wraps read failures in DocumentStorageError, matching put()'s
+        discipline — found as a real gap while validating OCR reprocessing
+        of already-uploaded documents: an unguarded FileNotFoundError/OSError
+        here (e.g. a document row surviving a Volume that lost the file, or
+        any other on-disk read failure) previously reached the API layer as
+        a raw, unhandled exception — the exact CORS-masking mechanism this
+        project has already fixed twice for the storage.put() side, just
+        never exercised for .get() until now. S3DocumentStorage.get() already
+        had this guard; this was the one asymmetric gap.
+        """
+        try:
+            return Path(storage_key).read_bytes()
+        except OSError as exc:
+            raise DocumentStorageError(f"local disk read failed ({type(exc).__name__})") from exc
 
     async def delete(self, storage_key: str) -> None:
         path = Path(storage_key)
