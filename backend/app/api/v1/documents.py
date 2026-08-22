@@ -203,7 +203,21 @@ async def process_document(
     if document.storage_path is None:
         raise HTTPException(status.HTTP_409_CONFLICT, "Document has no stored file to process")
 
-    content = await get_document_storage().get(document.storage_path)
+    try:
+        content = await get_document_storage().get(document.storage_path)
+    except (DocumentStorageError, DocumentStorageConfigError) as exc:
+        # Sibling gap to the one fixed in upload_document() (same P0 incident
+        # class — an unguarded storage call here escapes past CORSMiddleware
+        # exactly the same way, see that function's comment for the full
+        # Starlette-middleware-ordering explanation). This one was missed
+        # because it was never exercised until a real re-process was tried.
+        logger.error(
+            "document_storage_get_failed", document_id=str(document_id),
+            workspace_id=str(workspace_id), error_type=type(exc.__cause__ or exc).__name__,
+        )
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, "Сервис хранения документов временно недоступен — попробуйте позже."
+        ) from None
     suffix = "." + document.storage_path.rsplit(".", 1)[-1] if "." in document.storage_path else ""
 
     engine = DocumentIntelligenceEngine(session)

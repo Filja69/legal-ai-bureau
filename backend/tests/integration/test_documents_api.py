@@ -223,6 +223,42 @@ async def test_storage_config_error_returns_clean_503_with_cors_headers(client, 
 
 
 @pytest.mark.asyncio
+async def test_reprocess_storage_failure_returns_clean_503_not_generic_500(client, db_session, monkeypatch):
+    """Sibling gap to test_storage_failure_returns_clean_503_with_cors_headers_not_generic_500
+    above, found while validating OCR reprocessing of already-uploaded
+    documents: POST /documents/{id}/process's own storage.get() call was
+    never guarded the same way upload's storage.put() was — an unguarded
+    exception here hits the exact same CORS-masking mechanism.
+    """
+    _org, workspace = await make_org_and_workspace(db_session)
+    await db_session.commit()
+    headers = {"X-Workspace-Id": str(workspace.id)}
+
+    upload_response = await client.post(
+        "/api/v1/legal/documents", files={"file": ("contract.txt", io.BytesIO(b"hello world"), "text/plain")}, headers=headers
+    )
+    document_id = upload_response.json()["id"]
+
+    class _AlwaysFailsStorage:
+        async def get(self, *args, **kwargs):
+            raise DocumentStorageError("local disk read failed (OSError)")
+
+    import app.api.v1.documents as documents_module
+
+    monkeypatch.setattr(documents_module, "get_document_storage", lambda: _AlwaysFailsStorage())
+
+    response = await client.post(
+        f"/api/v1/legal/documents/{document_id}/process", headers={**headers, "Origin": "http://localhost:3000"}
+    )
+
+    assert response.status_code == 503
+    detail = response.json()["detail"]
+    assert "недоступен" in detail.lower()
+    assert "traceback" not in detail.lower() and "oserror" not in detail.lower()
+    assert response.headers.get("access-control-allow-origin") == "http://localhost:3000"
+
+
+@pytest.mark.asyncio
 async def test_embedding_failure_marks_document_failed_not_stuck_or_500(client, db_session, monkeypatch):
     """Same P0 mechanism, later in the pipeline: embedding.embed() raises
     after the Document row already exists. Must not: crash the request (no
