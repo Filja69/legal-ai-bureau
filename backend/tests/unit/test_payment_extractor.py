@@ -113,3 +113,97 @@ def test_provenance_fields_populated():
     assert candidate.chunk_id == chunk.id
     assert candidate.page_number == 2
     assert candidate.excerpt
+
+
+# --- Real-world layout robustness regressions ---
+# Fixtures below reproduce structural quirks observed in real extracted bank
+# payment-order text (glued fields, spelling variants, qualifier abbreviations,
+# wide label gaps) using entirely synthetic company names/amounts/dates —
+# these are general layout-robustness fixes, not case-specific data.
+
+_PAYMENT_AMOUNT_GLUED_TO_ENTITY = """
+ПЛАТЁЖНОЕ ПОРУЧЕНИЕ № 4 04.04.2025
+Сумма 4000000-00ООО "ГАММА ТРЕЙД"
+Счёт № 40702810300000001111Плательщик
+Получатель ООО "ДЕЛЬТА СЕРВИС"
+Назначение платежа Оплата по договору процентного займа б/н от 01.01.2025г.
+"""
+
+_PAYMENT_CYRILLIC_E_HEADER = """
+ПЛАТЕЖНОЕ ПОРУЧЕНИЕ № 9 09.09.2025 Электронно
+Сумма 900000-00
+ООО "ГАММА ТРЕЙД"
+Плательщик
+ООО "ДЕЛЬТА СЕРВИС"
+Получатель
+Назначение платежа Оплата по договору процентного займа б/н от 01.01.2025г.
+"""
+
+_PAYMENT_QUALIFIER_ABBREVIATION_PAYER = """
+ПЛАТЁЖНОЕ ПОРУЧЕНИЕ № 2 02.02.2025
+Сумма 200000-00
+ООО ГК "СЕВЕРНЫЙ ПОЛЮС"
+Плательщик
+ООО "ДЕЛЬТА СЕРВИС"
+Получатель
+Назначение платежа Оплата по договору процентного займа б/н от 01.01.2025г.
+"""
+
+_PAYMENT_WIDE_LABEL_GAP_RECIPIENT = """
+ПЛАТЁЖНОЕ ПОРУЧЕНИЕ № 3 03.03.2025
+Сумма 300000-00
+ООО "ГАММА ТРЕЙД"
+Плательщик
+ИНН 1234567890 КПП 123456789
+Счёт № 40702810300000002222ООО "ДЕЛЬТА СЕРВИС"
+Вид оплаты Срок плат.
+Наз. пл. Очер. плат.
+Код Рез. поле  Получатель
+Назначение платежа Оплата по договору процентного займа б/н от 01.01.2025г.
+"""
+
+
+def test_extracts_amount_when_glued_directly_to_next_entity_name():
+    candidate = extract_payment_order_candidate(_document(), _chunk(_PAYMENT_AMOUNT_GLUED_TO_ENTITY))
+    assert candidate is not None
+    assert candidate.amount == "4000000.00"
+
+
+def test_extracts_date_header_with_plain_cyrillic_e_spelling():
+    candidate = extract_payment_order_candidate(_document(), _chunk(_PAYMENT_CYRILLIC_E_HEADER))
+    assert candidate is not None
+    assert candidate.payment_date == date(2025, 9, 9)
+
+
+def test_extracts_payer_with_qualifier_abbreviation_before_quoted_name():
+    candidate = extract_payment_order_candidate(_document(), _chunk(_PAYMENT_QUALIFIER_ABBREVIATION_PAYER))
+    assert candidate is not None
+    assert candidate.payer is not None and "СЕВЕРНЫЙ ПОЛЮС" in candidate.payer
+
+
+def test_extracts_recipient_across_wide_label_gap():
+    candidate = extract_payment_order_candidate(_document(), _chunk(_PAYMENT_WIDE_LABEL_GAP_RECIPIENT))
+    assert candidate is not None
+    assert candidate.recipient is not None and "ДЕЛЬТА СЕРВИС" in candidate.recipient
+
+
+_PAYMENT_SPELLED_OUT_LEGAL_FORM = """
+ПЛАТЁЖНОЕ ПОРУЧЕНИЕ 500 05.05.2025
+Сумма 500000-00
+ОБЩЕСТВО С ОГРАНИЧЕННОЙ ОТВЕТСТВЕННОСТЬЮ ГК
+"СЕВЕРНЫЙ ПОЛЮС"
+Плательщик
+ООО "ДЕЛЬТА СЕРВИС"
+Получатель
+Назначение платежа Оплата по договору процентного займа б/н от 01.01.2025г.
+"""
+
+
+def test_extracts_payer_spelled_out_in_full_legal_form_not_abbreviated():
+    """Some payment-order pages spell out "Общество с ограниченной
+    ответственностью" instead of abbreviating to "ООО" for the exact same
+    entity — a rendering variant, not a different company.
+    """
+    candidate = extract_payment_order_candidate(_document(), _chunk(_PAYMENT_SPELLED_OUT_LEGAL_FORM))
+    assert candidate is not None
+    assert candidate.payer is not None and "СЕВЕРНЫЙ ПОЛЮС" in candidate.payer

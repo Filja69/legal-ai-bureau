@@ -41,15 +41,44 @@ _LOAN_PAYMENT_PURPOSE = re.compile(
     re.IGNORECASE,
 )
 _PAYMENT_PURPOSE_LINE = re.compile(r"Назначение\s+платежа\s*[:\-]?\s*(.+)", re.IGNORECASE)
-_AMOUNT_FIELD = re.compile(r"Сумма\s+(\d[\d\s]*)-(\d{2})\b")
+# Trailing (?!\d) instead of \b: a \b boundary fails whenever the kopecks are
+# immediately followed by a Cyrillic letter with no separator (e.g. a real
+# extracted layout with no whitespace between the amount field and the next
+# entity name, "2000000-00ООО ...") — Python's \w is Unicode-aware, so a
+# digit directly abutting a Cyrillic letter is NOT a word boundary. The
+# actual intent was just "kopecks are exactly two digits," which (?!\d)
+# expresses without assuming anything about what character follows.
+_AMOUNT_FIELD = re.compile(r"Сумма\s+(\d[\d\s]*)-(\d{2})(?!\d)")
 _DATE_NEAR_HEADER = re.compile(
     # The gap between the header/label and the date can itself contain
     # digits (a document number, e.g. "ПОРУЧЕНИЕ № 11 13.09.2024") — so this
     # is "any char, non-greedy" bridging, not \D-only, on the same line.
-    r"(?:ПЛАТ[ЁE]ЖНОЕ\s+ПОРУЧЕНИЕ|Дата)[^\n]{0,20}?(\d{1,2}[./]\d{1,2}[./]\d{2,4})", re.IGNORECASE
+    # [ЁЕ] covers both the diaeresis and the (very common in real documents/
+    # OCR output) plain-Е spelling of "ПЛАТЁЖНОЕ" — both are Cyrillic; a
+    # Latin "E" here would never legitimately appear in Cyrillic text.
+    r"(?:ПЛАТ[ЁЕ]ЖНОЕ\s+ПОРУЧЕНИЕ|Дата)[^\n]{0,20}?(\d{1,2}[./]\d{1,2}[./]\d{2,4})", re.IGNORECASE
 )
-_ENTITY = re.compile(r'(?:ООО|АО|ПАО|ЗАО|ИП)\s*[«"][^»"]+[»"]')
-_LABEL_WINDOW = 60  # how far after an entity name a "Плательщик"/"Получатель" label is still considered "its" label
+# Legal-form prefix, either the standard abbreviation or its full official
+# name — real payment-order text (depending on how the paying bank's system
+# rendered that particular page) spells this out in full just as often as it
+# abbreviates it ("ОБЩЕСТВО С ОГРАНИЧЕННОЙ ОТВЕТСТВЕННОСТЬЮ" alongside "ООО"
+# for the exact same entity across different pages of the same document).
+# These are standard, universally-defined Russian legal entity type names,
+# not specific to any one company.
+_LEGAL_FORM_PREFIX = (
+    r"(?:ООО|ОАО|ПАО|ЗАО|АО|ИП"
+    r"|ОБЩЕСТВО\s+С\s+ОГРАНИЧЕННОЙ\s+ОТВЕТСТВЕННОСТЬЮ"
+    r"|(?:ПУБЛИЧНОЕ|ЗАКРЫТОЕ|ОТКРЫТОЕ)\s+АКЦИОНЕРНОЕ\s+ОБЩЕСТВО"
+    r"|АКЦИОНЕРНОЕ\s+ОБЩЕСТВО"
+    r"|ИНДИВИДУАЛЬНЫЙ\s+ПРЕДПРИНИМАТЕЛЬ)"
+)
+# Optional short all-caps qualifier abbreviation (ГК, ТД, УК, ХК, etc.) between
+# the legal-form prefix and the quoted name — common in real Russian company
+# names ("ООО ГК «...»", "АО ТД «...»") and otherwise breaks the match entirely
+# since the plain \s* gap can't span an extra word.
+_ENTITY = re.compile(_LEGAL_FORM_PREFIX + r'\s*(?:[А-ЯЁ]{1,4}\s+)?[«"][^»"]+[»"]')
+_LABEL_WINDOW = 150  # how far before a "Плательщик"/"Получатель" label an entity name is still considered "its" name — wide
+# enough to bridge the extra boilerplate lines (form/field labels) real bank layouts commonly place between the two
 
 
 @dataclass
