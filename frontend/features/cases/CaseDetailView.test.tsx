@@ -114,6 +114,7 @@ describe("CaseDetailView", () => {
       ],
       next_best_actions: [{ priority: 1, action: "Поднять переписку сторон за сентябрь 2024.", why: "…" }],
       legal_kb_warning: "Правовая квалификация пока ограничена: система выявила доказательственные факты и противоречия, но не подтверждает окончательную правовую позицию без проверенных норм права.",
+      party_relationship_findings: [],
     });
 
     render(<CaseDetailView caseId="case-1" />, { wrapper });
@@ -124,6 +125,36 @@ describe("CaseDetailView", () => {
     expect(screen.getByText(/Подтверждённый подписанный экземпляр договора не обнаружен/)).toBeInTheDocument();
     expect(screen.getByText(/Поднять переписку сторон/)).toBeInTheDocument();
     expect(screen.getByText(/Правовая квалификация пока ограничена/)).toBeInTheDocument();
+  });
+
+  it("shows the party relationships block only when findings exist, with timing and open questions", async () => {
+    vi.spyOn(legalApi, "getCase").mockResolvedValue(baseCase());
+    vi.spyOn(litigationApi, "getCaseResultSummary").mockResolvedValue({
+      case_snapshot: { party_names: [], document_count: 1, payment_count: 0, total_amount: "0.00", key_dates: [] },
+      key_findings: [],
+      money_flow: { transaction_count: 0, transactions: [], total_amount: "0.00", referenced_contract_dates: {}, referenced_contract_numbers: {} },
+      what_this_may_mean: [],
+      missing_critical_evidence: [],
+      next_best_actions: [],
+      legal_kb_warning: null,
+      party_relationship_findings: [
+        {
+          subject_name: "Директор Истца (синтетика)", related_party_name: "ООО «Ответчик — TEST»",
+          relationship_type: "member", relationship_start: "2024-06-01", relationship_end: null,
+          timing_note: "Дата возникновения связи: 2024-06-01. Это не устанавливает осведомлённость само по себе.",
+          why_it_may_matter: "Может иметь значение для оценки осведомлённости и поведения соответствующей стороны.",
+          what_is_still_needed: ["История ЕГРЮЛ (EGRUL history)", "Реестр участников"],
+          verification_status: "unverified", source_document_id: null, source_document_title: null, source_excerpt: null,
+        },
+      ],
+    });
+
+    render(<CaseDetailView caseId="case-1" />, { wrapper });
+    await waitFor(() => expect(screen.getByText("Связи сторон и обстоятельства, требующие проверки")).toBeInTheDocument());
+
+    expect(screen.getByText(/Директор Истца \(синтетика\)/)).toBeInTheDocument();
+    expect(screen.getByText(/ООО «Ответчик — TEST»/)).toBeInTheDocument();
+    expect(screen.getByText(/Требует проверки: История ЕГРЮЛ/)).toBeInTheDocument();
   });
 
   it("timeline shows event date type badges (EXACT vs UNKNOWN)", async () => {

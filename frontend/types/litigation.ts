@@ -144,6 +144,24 @@ export interface NextBestAction {
   why: string;
 }
 
+export type RelationshipType = "director" | "shareholder" | "member" | "other";
+export type RelationshipVerificationStatus = "unverified" | "document_supported" | "externally_verified" | "conflicting";
+
+export interface PartyRelationshipFinding {
+  subject_name: string;
+  related_party_name: string;
+  relationship_type: RelationshipType;
+  relationship_start: string | null;
+  relationship_end: string | null;
+  timing_note: string;
+  why_it_may_matter: string;
+  what_is_still_needed: string[];
+  verification_status: RelationshipVerificationStatus;
+  source_document_id: string | null;
+  source_document_title: string | null;
+  source_excerpt: string | null;
+}
+
 export interface CaseResultSummary {
   case_snapshot: CaseSnapshot;
   key_findings: KeyFinding[];
@@ -152,4 +170,47 @@ export interface CaseResultSummary {
   missing_critical_evidence: MissingEvidenceItem[];
   next_best_actions: NextBestAction[];
   legal_kb_warning: string | null;
+  party_relationship_findings: PartyRelationshipFinding[];
+}
+
+// --- Case Intelligence: party relationships, hypothesis register, related litigation ---
+
+export type HypothesisCategory = "fact" | "counsel_hypothesis" | "ai_inference" | "missing_evidence";
+
+export interface CasePartyRelationship {
+  id: string;
+  case_id: string;
+  subject_party_id: string;
+  related_party_id: string;
+  relationship_type: RelationshipType;
+  ownership_percentage: string | null;
+  start_date: string | null;
+  end_date: string | null;
+  source_document_id: string | null;
+  source_excerpt: string | null;
+  verification_status: RelationshipVerificationStatus;
+  notes: string | null;
+}
+
+export interface CaseHypothesis {
+  id: string;
+  case_id: string;
+  category: HypothesisCategory;
+  statement: string;
+  required_verification: string[];
+  related_relationship_id: string | null;
+  source: string | null;
+}
+
+export interface CaseRelatedLitigation {
+  id: string;
+  case_id: string;
+  court: string | null;
+  case_number: string | null;
+  parties_description: string | null;
+  subject_matter: string | null;
+  amount_in_dispute: string | null;
+  status: string | null;
+  note: string | null;
+  contextual_note: string;
 }

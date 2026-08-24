@@ -255,6 +255,30 @@ export function CaseDetailView({ caseId }: { caseId: string }) {
               </div>
             )}
 
+            {resultSummaryQuery.data && resultSummaryQuery.data.party_relationship_findings.length > 0 && (
+              <div className="rounded border border-slate-800 bg-slate-900/50 p-4 text-sm">
+                <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                  Связи сторон и обстоятельства, требующие проверки
+                </h2>
+                <ul className="mt-3 space-y-4">
+                  {resultSummaryQuery.data.party_relationship_findings.map((f, i) => (
+                    <li key={i} className="border-t border-slate-800 pt-3 first:border-t-0 first:pt-0">
+                      <div className="text-slate-200">
+                        <span className="font-medium">{f.subject_name}</span> — {f.relationship_type} «{f.related_party_name}»
+                      </div>
+                      <div className="mt-1 text-xs text-slate-500">{f.timing_note}</div>
+                      <div className="mt-1 text-xs text-slate-400">{f.why_it_may_matter}</div>
+                      {f.what_is_still_needed.length > 0 && (
+                        <div className="mt-1 text-xs text-slate-500">
+                          Требует проверки: {f.what_is_still_needed.join("; ")}
+                        </div>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
             <dl className="grid grid-cols-2 gap-4 text-sm">
             <div>
               <dt className="text-slate-500">Status</dt>
