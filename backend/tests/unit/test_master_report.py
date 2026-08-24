@@ -118,6 +118,19 @@ def test_extract_contract_terms_finds_amount_rate_maturity_and_formation_clause(
     assert terms.formation_clause_present is True
 
 
+def test_extract_contract_terms_amount_with_nonbreaking_thousands_separator():
+    """Word-authored Russian contracts commonly group an amount's digits
+    with a non-breaking space (U+00A0), not a regular space, so the number
+    can't be split across a line break — a mismatch between a document's
+    non-breaking separator and a regex expecting only regular spaces would
+    silently match just the trailing digit group (e.g. "000" out of
+    "30 000 000") instead of the whole number.
+    """
+    text = "Займодавец обязуется передать Заемщику 30 000 000 (тридцать миллионов) рублей 00 копеек."
+    terms = extract_contract_terms(_DOC_A, "contract.txt", text)
+    assert "30000000.00" in terms.amounts
+
+
 def test_extract_contract_terms_amount_with_parenthetical_spellout():
     """Real Russian loan agreements commonly write the amount as digits
     followed by a parenthetical spellout before the currency word
