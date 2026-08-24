@@ -214,3 +214,101 @@ export interface CaseRelatedLitigation {
   note: string | null;
   contextual_note: string;
 }
+
+// --- Master Case Report ---
+
+export type FindingCategory =
+  | "claim_contradiction" | "payment_pattern" | "contract_formation" | "contract_mismatch" | "party_conduct"
+  | "interest_calculation" | "procedural" | "corporate_relationship" | "related_litigation" | "evidence_gap"
+  | "legal_argument" | "risk" | "other";
+
+export interface MasterFinding {
+  id: string;
+  category: FindingCategory;
+  title: string;
+  statement: string;
+  supporting_facts: string[];
+  contradicting_facts: string[];
+  source_document_ids: string[];
+  source_document_titles: string[];
+  excerpts: string[];
+  page_numbers: (number | null)[];
+  helps_side: string;
+  hurts_side: string;
+  strength: string;
+  confidence: string;
+  legal_significance: string;
+  counterargument: string | null;
+  response_to_counterargument: string | null;
+  caveat: string | null;
+  missing_evidence: string[];
+  recommended_action: string | null;
+  verification_status: string;
+}
+
+export interface CaseOnePager {
+  case_position: string;
+  strongest_point: string | null;
+  biggest_risk: string | null;
+  money_at_stake: string;
+  top_arguments: string[];
+  top_risks: string[];
+  what_opponent_must_explain: string[];
+  what_court_likely_focuses_on: string | null;
+  missing_p0_evidence: string[];
+  next_best_action: string | null;
+}
+
+export interface CourtScenario {
+  scenario: string;
+  why_court_could_get_there: string;
+  facts_supporting: string[];
+  facts_against: string[];
+  label: string;
+}
+
+export interface DraftResponseSection {
+  section: string;
+  argument: string;
+  supporting_finding_ids: string[];
+  caution: string | null;
+}
+
+export interface BurdenItem {
+  proposition: string;
+  side: string;
+  current_evidence: string[];
+  contrary_evidence: string[];
+  status: string;
+  weakness: string | null;
+  how_to_attack: string | null;
+}
+
+export interface CaseMap {
+  claimed_amounts: string[];
+  claim_dates: string[];
+  note: string;
+}
+
+export interface ContractVersionTerms {
+  document_id: string;
+  document_title: string;
+  amounts: string[];
+  interest_rate: string | null;
+  maturity_dates: string[];
+  formation_clause_present: boolean;
+  signature_status: string;
+}
+
+export interface MasterCaseReport {
+  one_pager: CaseOnePager;
+  case_map: CaseMap;
+  findings: MasterFinding[];
+  burden_map: BurdenItem[];
+  court_scenarios: CourtScenario[];
+  opposing_party_questions: string[];
+  draft_response_structure: DraftResponseSection[];
+  contract_version_matrix: ContractVersionTerms[];
+  money_flow: MoneyFlow;
+  legal_kb_warning: string | null;
+}

@@ -51,6 +51,7 @@ from app.repositories.case_repository import CaseRepository
 from app.repositories.document_repository import DocumentRepository
 from app.schemas.case import CaseCreate, CaseOut
 from app.schemas.litigation import (
+    BurdenItemOut,
     CaseAllegationOut,
     CaseContradictionOut,
     CaseDocumentAttach,
@@ -60,6 +61,8 @@ from app.schemas.litigation import (
     CaseFactOut,
     CaseHypothesisCreate,
     CaseHypothesisOut,
+    CaseMapOut,
+    CaseOnePagerOut,
     CasePartyCreate,
     CasePartyOut,
     CasePartyRelationshipCreate,
@@ -70,8 +73,13 @@ from app.schemas.litigation import (
     CaseResultSummaryOut,
     CaseSnapshotOut,
     ClaimEvidenceContradictionOut,
+    ContractVersionTermsOut,
+    CourtScenarioOut,
+    DraftResponseSectionOut,
     EvidenceMatrixRowOut,
     KeyFindingOut,
+    MasterCaseReportOut,
+    MasterFindingOut,
     MissingEvidenceItemOut,
     MoneyFlowOut,
     MoneyFlowTransactionOut,
@@ -810,6 +818,92 @@ async def add_case_related_litigation(
         parties_description=related.parties_description, subject_matter=related.subject_matter,
         amount_in_dispute=related.amount_in_dispute, status=related.status, note=related.note,
         contextual_note=build_related_litigation_note(related.case_number),
+    )
+
+
+# --- Master Case Report (top-level synthesis over E1-E4 + Case
+# Intelligence — run POST /analyze and POST /party-relationships/sync-timeline
+# first for the fullest picture, but this works with partial data too). ---
+
+
+@router.get("/cases/{case_id}/master-report", response_model=MasterCaseReportOut)
+async def get_case_master_report(
+    case_id: uuid.UUID,
+    workspace_id: uuid.UUID = Depends(get_workspace_id),
+    user=Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> MasterCaseReportOut:
+    case = await _get_case_or_404(session, workspace_id, case_id)
+    engine = LitigationCaseEngine(session)
+    report = await engine.get_master_report(case)
+
+    return MasterCaseReportOut(
+        one_pager=CaseOnePagerOut(
+            case_position=report.one_pager.case_position, strongest_point=report.one_pager.strongest_point,
+            biggest_risk=report.one_pager.biggest_risk, money_at_stake=report.one_pager.money_at_stake,
+            top_arguments=report.one_pager.top_arguments, top_risks=report.one_pager.top_risks,
+            what_opponent_must_explain=report.one_pager.what_opponent_must_explain,
+            what_court_likely_focuses_on=report.one_pager.what_court_likely_focuses_on,
+            missing_p0_evidence=report.one_pager.missing_p0_evidence, next_best_action=report.one_pager.next_best_action,
+        ),
+        case_map=CaseMapOut(
+            claimed_amounts=report.case_map.claimed_amounts, claim_dates=report.case_map.claim_dates, note=report.case_map.note
+        ),
+        findings=[
+            MasterFindingOut(
+                id=f.id, category=f.category, title=f.title, statement=f.statement, supporting_facts=f.supporting_facts,
+                contradicting_facts=f.contradicting_facts, source_document_ids=f.source_document_ids,
+                source_document_titles=f.source_document_titles, excerpts=f.excerpts, page_numbers=f.page_numbers,
+                helps_side=f.helps_side, hurts_side=f.hurts_side, strength=f.strength, confidence=f.confidence,
+                legal_significance=f.legal_significance, counterargument=f.counterargument,
+                response_to_counterargument=f.response_to_counterargument, caveat=f.caveat,
+                missing_evidence=f.missing_evidence, recommended_action=f.recommended_action,
+                verification_status=f.verification_status,
+            )
+            for f in report.findings
+        ],
+        burden_map=[
+            BurdenItemOut(
+                proposition=b.proposition, side=b.side, current_evidence=b.current_evidence,
+                contrary_evidence=b.contrary_evidence, status=b.status, weakness=b.weakness, how_to_attack=b.how_to_attack,
+            )
+            for b in report.burden_map
+        ],
+        court_scenarios=[
+            CourtScenarioOut(
+                scenario=s.scenario, why_court_could_get_there=s.why_court_could_get_there,
+                facts_supporting=s.facts_supporting, facts_against=s.facts_against, label=s.label,
+            )
+            for s in report.court_scenarios
+        ],
+        opposing_party_questions=report.opposing_party_questions,
+        draft_response_structure=[
+            DraftResponseSectionOut(
+                section=d.section, argument=d.argument, supporting_finding_ids=d.supporting_finding_ids, caution=d.caution
+            )
+            for d in report.draft_response_structure
+        ],
+        contract_version_matrix=[
+            ContractVersionTermsOut(
+                document_id=t.document_id, document_title=t.document_title, amounts=t.amounts,
+                interest_rate=t.interest_rate, maturity_dates=t.maturity_dates,
+                formation_clause_present=t.formation_clause_present, signature_status=t.signature_status,
+            )
+            for t in report.contract_version_matrix
+        ],
+        money_flow=MoneyFlowOut(
+            transaction_count=report.money_flow.transaction_count,
+            transactions=[
+                MoneyFlowTransactionOut(
+                    payment_order_id=t.payment_order_id, document_id=t.document_id, payment_date=t.payment_date,
+                    amount=t.amount, payer=t.payer, recipient=t.recipient, referenced_contract_date=t.referenced_contract_date,
+                )
+                for t in report.money_flow.transactions
+            ],
+            total_amount=report.money_flow.total_amount, referenced_contract_dates=report.money_flow.referenced_contract_dates,
+            referenced_contract_numbers=report.money_flow.referenced_contract_numbers,
+        ),
+        legal_kb_warning=report.legal_kb_warning,
     )
 
 

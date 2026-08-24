@@ -185,3 +185,58 @@ def detect_claim_vs_evidence_contradictions(
                 )
             )
     return candidates
+
+
+# --- Claim-theory tensions (Master Case Report) — cross-allegation-type
+# inconsistency, fully generalized: a small, fixed table of allegation-type
+# PAIRS whose underlying factual postures are in genuine tension with each
+# other (never case-specific text matching). Deliberately narrow — most
+# allegation-type pairs are perfectly compatible (e.g. NO_CONTRACT +
+# FUTURE_CONTRACT_NEGOTIATIONS just describes ongoing talks that never
+# concluded); only pairs listed here are flagged, and even then only as a
+# tension worth investigating, never a resolved contradiction.
+
+_ALLEGATION_TENSION_PAIRS: frozenset[frozenset[AllegationType]] = frozenset(
+    {
+        # A transfer cannot simultaneously be an unintentional error (no
+        # awareness of any counterparty arrangement) and a step in a
+        # deliberate, ongoing negotiation toward an agreement — these
+        # describe different subjective states at the moment of transfer.
+        frozenset({AllegationType.PAYMENT_BY_MISTAKE, AllegationType.FUTURE_CONTRACT_NEGOTIATIONS}),
+    }
+)
+
+
+@dataclass
+class ClaimTheoryTension:
+    allegation_a_id: uuid.UUID
+    allegation_a_type: AllegationType
+    allegation_a_document_id: uuid.UUID
+    allegation_a_excerpt: str
+    allegation_b_id: uuid.UUID
+    allegation_b_type: AllegationType
+    allegation_b_document_id: uuid.UUID
+    allegation_b_excerpt: str
+    reason: str
+
+
+def detect_claim_theory_tensions(allegations: list[AllegationInput]) -> list[ClaimTheoryTension]:
+    tensions: list[ClaimTheoryTension] = []
+    for a, b in combinations(allegations, 2):
+        pair = frozenset({a.allegation_type, b.allegation_type})
+        if pair not in _ALLEGATION_TENSION_PAIRS or a.allegation_type == b.allegation_type:
+            continue
+        tensions.append(
+            ClaimTheoryTension(
+                allegation_a_id=a.id, allegation_a_type=a.allegation_type, allegation_a_document_id=a.document_id,
+                allegation_a_excerpt=a.excerpt,
+                allegation_b_id=b.id, allegation_b_type=b.allegation_type, allegation_b_document_id=b.document_id,
+                allegation_b_excerpt=b.excerpt,
+                reason=(
+                    f"The pleading asserts both '{a.allegation_type.value}' and '{b.allegation_type.value}' — "
+                    "these describe different factual postures at the moment of transfer and may not be "
+                    "simultaneously true; this is a tension worth investigating, not a resolved inconsistency."
+                ),
+            )
+        )
+    return tensions

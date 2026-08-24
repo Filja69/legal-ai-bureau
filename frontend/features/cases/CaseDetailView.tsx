@@ -11,6 +11,7 @@ import {
   attachCaseDocument,
   extractCaseFacts,
   getCaseEvidenceMatrix,
+  getCaseMasterReport,
   getCaseResultSummary,
   getCaseTimeline,
   listCaseContradictions,
@@ -88,6 +89,12 @@ export function CaseDetailView({ caseId }: { caseId: string }) {
   const resultSummaryQuery = useQuery({
     queryKey: ["case", workspaceId, caseId, "result-summary"],
     queryFn: () => getCaseResultSummary(workspaceId!, caseId),
+    enabled: !!workspaceId && tab === "Overview",
+  });
+
+  const masterReportQuery = useQuery({
+    queryKey: ["case", workspaceId, caseId, "master-report"],
+    queryFn: () => getCaseMasterReport(workspaceId!, caseId),
     enabled: !!workspaceId && tab === "Overview",
   });
 
@@ -218,6 +225,60 @@ export function CaseDetailView({ caseId }: { caseId: string }) {
       <div className="mt-6">
         {tab === "Overview" && (
           <div className="space-y-6">
+            {masterReportQuery.data && (
+              <div className="rounded border border-indigo-900 bg-indigo-950/20 p-4 text-sm">
+                <h2 className="text-xs font-semibold uppercase tracking-wide text-indigo-300">Master Case Report — 30-second Case Position</h2>
+                <dl className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div>
+                    <dt className="text-slate-500">Money at stake</dt>
+                    <dd className="text-slate-200">{masterReportQuery.data.one_pager.money_at_stake}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-slate-500">Strongest point</dt>
+                    <dd className="text-slate-200">{masterReportQuery.data.one_pager.strongest_point ?? "Not identified yet."}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-slate-500">Biggest risk</dt>
+                    <dd className="text-slate-200">{masterReportQuery.data.one_pager.biggest_risk ?? "Not identified yet."}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-slate-500">Next best action</dt>
+                    <dd className="text-slate-200">{masterReportQuery.data.one_pager.next_best_action ?? "Insufficient data for a recommendation."}</dd>
+                  </div>
+                </dl>
+
+                {masterReportQuery.data.one_pager.missing_p0_evidence.length > 0 && (
+                  <div className="mt-3 border-t border-indigo-900 pt-3 text-xs text-amber-400">
+                    Missing evidence: {masterReportQuery.data.one_pager.missing_p0_evidence.slice(0, 3).join("; ")}
+                  </div>
+                )}
+
+                {masterReportQuery.data.findings.length > 0 && (
+                  <div className="mt-4">
+                    <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-400">Top findings</h3>
+                    <ul className="mt-2 space-y-3">
+                      {masterReportQuery.data.findings.slice(0, 5).map((f) => (
+                        <li key={f.id} className="border-t border-indigo-900/60 pt-2 first:border-t-0 first:pt-0">
+                          <div className="flex items-center gap-2">
+                            <span className="rounded border border-slate-700 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-slate-300">
+                              {f.strength}
+                            </span>
+                            <span className="text-slate-200">{f.title}</span>
+                          </div>
+                          <div className="mt-1 text-xs text-slate-400">{f.statement}</div>
+                          {f.caveat && <div className="mt-1 text-xs text-slate-500">Caveat: {f.caveat}</div>}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {masterReportQuery.data.legal_kb_warning && (
+                  <p className="mt-3 border-t border-indigo-900 pt-3 text-xs text-amber-400">{masterReportQuery.data.legal_kb_warning}</p>
+                )}
+              </div>
+            )}
+
             {resultSummaryQuery.data && (
               <div className="rounded border border-slate-800 bg-slate-900/50 p-4 text-sm">
                 <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-400">Главный вывод по делу</h2>

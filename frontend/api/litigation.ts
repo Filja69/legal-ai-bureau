@@ -11,6 +11,7 @@ import type {
   CaseParty,
   CaseResultSummary,
   EvidenceMatrixRow,
+  MasterCaseReport,
   PartyType,
   ProceduralRole,
 } from "@/types/litigation";
@@ -89,5 +90,10 @@ export async function analyzeCase(workspaceId: string, caseId: string): Promise<
 
 export async function getCaseResultSummary(workspaceId: string, caseId: string): Promise<CaseResultSummary> {
   const { data } = await apiClient.get<CaseResultSummary>(`/api/v1/legal/cases/${caseId}/result-summary`, withWorkspace(workspaceId));
+  return data;
+}
+
+export async function getCaseMasterReport(workspaceId: string, caseId: string): Promise<MasterCaseReport> {
+  const { data } = await apiClient.get<MasterCaseReport>(`/api/v1/legal/cases/${caseId}/master-report`, withWorkspace(workspaceId));
   return data;
 }

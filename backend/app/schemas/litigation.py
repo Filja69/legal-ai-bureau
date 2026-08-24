@@ -5,6 +5,7 @@ from datetime import date, datetime
 
 from pydantic import BaseModel, ConfigDict
 
+from app.domains.litigation.master_report import FindingCategory
 from app.models.matters import (
     AllegationType,
     CaseDocumentRole,
@@ -325,3 +326,97 @@ class CaseRelatedLitigationOut(BaseModel):
     # Computed at read time, never stored verbatim as a causal claim — see
     # case_relationships.py's build_related_litigation_note().
     contextual_note: str
+
+
+# --- Master Case Report ---
+
+
+class MasterFindingOut(BaseModel):
+    id: str
+    category: FindingCategory
+    title: str
+    statement: str
+    supporting_facts: list[str]
+    contradicting_facts: list[str]
+    source_document_ids: list[uuid.UUID]
+    source_document_titles: list[str]
+    excerpts: list[str]
+    page_numbers: list[int | None]
+    helps_side: str
+    hurts_side: str
+    strength: str
+    confidence: str
+    legal_significance: str
+    counterargument: str | None
+    response_to_counterargument: str | None
+    caveat: str | None
+    missing_evidence: list[str]
+    recommended_action: str | None
+    verification_status: str
+
+
+class CaseOnePagerOut(BaseModel):
+    case_position: str
+    strongest_point: str | None
+    biggest_risk: str | None
+    money_at_stake: str
+    top_arguments: list[str]
+    top_risks: list[str]
+    what_opponent_must_explain: list[str]
+    what_court_likely_focuses_on: str | None
+    missing_p0_evidence: list[str]
+    next_best_action: str | None
+
+
+class CourtScenarioOut(BaseModel):
+    scenario: str
+    why_court_could_get_there: str
+    facts_supporting: list[str]
+    facts_against: list[str]
+    label: str
+
+
+class DraftResponseSectionOut(BaseModel):
+    section: str
+    argument: str
+    supporting_finding_ids: list[str]
+    caution: str | None
+
+
+class BurdenItemOut(BaseModel):
+    proposition: str
+    side: str
+    current_evidence: list[str]
+    contrary_evidence: list[str]
+    status: str
+    weakness: str | None
+    how_to_attack: str | None
+
+
+class CaseMapOut(BaseModel):
+    claimed_amounts: list[str]
+    claim_dates: list[str]
+    note: str
+
+
+class ContractVersionTermsOut(BaseModel):
+    document_id: uuid.UUID
+    document_title: str
+    amounts: list[str]
+    interest_rate: str | None
+    maturity_dates: list[str]
+    formation_clause_present: bool
+    signature_status: str
+
+
+class MasterCaseReportOut(BaseModel):
+    one_pager: CaseOnePagerOut
+    case_map: CaseMapOut
+    findings: list[MasterFindingOut]
+    burden_map: list[BurdenItemOut]
+    court_scenarios: list[CourtScenarioOut]
+    opposing_party_questions: list[str]
+    draft_response_structure: list[DraftResponseSectionOut]
+    contract_version_matrix: list[ContractVersionTermsOut]
+    money_flow: MoneyFlowOut
+    legal_kb_warning: str | None

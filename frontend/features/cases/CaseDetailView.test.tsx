@@ -127,6 +127,44 @@ describe("CaseDetailView", () => {
     expect(screen.getByText(/Правовая квалификация пока ограничена/)).toBeInTheDocument();
   });
 
+  it("leads the Overview tab with the Master Case Report one-pager and top findings", async () => {
+    vi.spyOn(legalApi, "getCase").mockResolvedValue(baseCase());
+    vi.spyOn(litigationApi, "getCaseMasterReport").mockResolvedValue({
+      one_pager: {
+        case_position: "3 findings identified.", strongest_point: "Internal tension in claimant's pleading",
+        biggest_risk: "No confirmed signed contract copy", money_at_stake: "4400000.00",
+        top_arguments: ["Internal tension in claimant's pleading"], top_risks: ["No confirmed signed contract copy"],
+        what_opponent_must_explain: [], what_court_likely_focuses_on: null,
+        missing_p0_evidence: ["Correspondence discussing loan terms"], next_best_action: "Obtain correspondence around the transfer dates.",
+      },
+      case_map: { claimed_amounts: [], claim_dates: [], note: "" },
+      findings: [
+        {
+          id: "claim_contradiction:theory:0", category: "claim_contradiction",
+          title: "Internal tension between two propositions in the same pleading",
+          statement: "The pleading asserts both 'payment_by_mistake' and 'future_contract_negotiations'.",
+          supporting_facts: [], contradicting_facts: [], source_document_ids: [], source_document_titles: [],
+          excerpts: [], page_numbers: [], helps_side: "client", hurts_side: "opponent", strength: "HIGH",
+          confidence: "Deterministic.", legal_significance: "Invites scrutiny.", counterargument: null,
+          response_to_counterargument: null, caveat: "A tension worth investigating, not a resolved inconsistency.",
+          missing_evidence: [], recommended_action: null, verification_status: "document_supported",
+        },
+      ],
+      burden_map: [], court_scenarios: [], opposing_party_questions: [], draft_response_structure: [],
+      contract_version_matrix: [], money_flow: { transaction_count: 2, transactions: [], total_amount: "4400000.00", referenced_contract_dates: {}, referenced_contract_numbers: {} },
+      legal_kb_warning: null,
+    });
+
+    render(<CaseDetailView caseId="case-1" />, { wrapper });
+    await waitFor(() => expect(screen.getByText("Master Case Report — 30-second Case Position")).toBeInTheDocument());
+
+    expect(screen.getByText("4400000.00")).toBeInTheDocument();
+    expect(screen.getByText(/Internal tension in claimant's pleading/)).toBeInTheDocument();
+    expect(screen.getByText(/Obtain correspondence around the transfer dates/)).toBeInTheDocument();
+    expect(screen.getByText(/asserts both 'payment_by_mistake'/)).toBeInTheDocument();
+    expect(screen.getByText(/Caveat: A tension worth investigating/)).toBeInTheDocument();
+  });
+
   it("shows the party relationships block only when findings exist, with timing and open questions", async () => {
     vi.spyOn(legalApi, "getCase").mockResolvedValue(baseCase());
     vi.spyOn(litigationApi, "getCaseResultSummary").mockResolvedValue({

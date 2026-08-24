@@ -25,17 +25,38 @@ from app.domains.litigation.case_relationships import (
     build_party_relationship_findings,
 )
 from app.domains.litigation.case_result_summary import CaseResultSummary, build_case_result_summary
+from app.domains.litigation.conduct_patterns import detect_payment_pattern
+from app.domains.litigation.contract_forensics import build_contract_version_matrix
 from app.domains.litigation.contradiction_detector import (
     AllegationInput,
     ClaimEvidenceContradiction,
     ContradictionCandidate,
     PaymentOrderInput,
+    detect_claim_theory_tensions,
     detect_claim_vs_evidence_contradictions,
     detect_contradictions,
 )
 from app.domains.litigation.evidence_matrix import EvidenceMatrixRow, build_evidence_matrix
 from app.domains.litigation.fact_dedup import CanonicalFact, deduplicate_facts
 from app.domains.litigation.fact_extractor import FactEvidenceCandidate, extract_fact_candidates
+from app.domains.litigation.master_report import (
+    MasterCaseReport,
+    RelatedLitigationInput,
+    build_burden_map,
+    build_case_map,
+    build_claim_contradiction_findings,
+    build_contract_formation_findings,
+    build_contract_mismatch_finding,
+    build_corporate_relationship_findings,
+    build_court_scenarios,
+    build_draft_response_structure,
+    build_evidence_gap_findings,
+    build_one_pager,
+    build_opposing_party_questions,
+    build_payment_pattern_finding,
+    build_related_litigation_findings,
+    rank_findings,
+)
 from app.domains.litigation.payment_extractor import extract_payment_order_candidate
 from app.domains.litigation.timeline_builder import build_timeline
 from app.models.legal_knowledge import LawVersion
@@ -52,6 +73,7 @@ from app.models.matters import (
     CaseParty,
     CasePartyRelationship,
     CasePaymentOrder,
+    CaseRelatedLitigation,
     DateType,
     Document,
     DocumentChunk,
@@ -647,3 +669,160 @@ class LitigationCaseEngine:
         ]
 
         return build_party_relationship_findings(relationship_inputs, reference_dates, hypotheses, document_titles)
+
+    # --- Master Case Report (top-level synthesis over everything above) ---
+
+    async def _determine_our_side_role(self, case: Case) -> str:
+        """Matches Case.client_name against CaseParty rows to find which
+        procedural role (plaintiff/defendant) the case's own client holds —
+        "unclear" if no match, never guessed. Drives helps_side/hurts_side
+        attribution in master_report.py.
+        """
+        if not case.client_name:
+            return "unclear"
+        parties = (await self._session.execute(select(CaseParty).where(CaseParty.case_id == case.id))).scalars().all()
+        for party in parties:
+            if party.name.strip().lower() == case.client_name.strip().lower():
+                if party.procedural_role.value in ("plaintiff", "defendant"):
+                    return party.procedural_role.value
+                return "unclear"
+        return "unclear"
+
+    async def _claim_document_facts(self, case: Case) -> tuple[list[str], list[str]]:
+        """AMOUNT/DATE CaseFact values whose evidence traces to a CLAIM-role
+        document — reuses the existing generic fact_extractor output, same
+        pattern as _contract_amount_candidates(), for the Case Map section.
+        """
+        claim_document_ids = {
+            cd.document_id
+            for cd in (
+                await self._session.execute(
+                    select(CaseDocument).where(CaseDocument.case_id == case.id, CaseDocument.role == CaseDocumentRole.CLAIM)
+                )
+            ).scalars().all()
+        }
+        if not claim_document_ids:
+            return [], []
+
+        facts = (await self._session.execute(select(CaseFact).where(CaseFact.case_id == case.id))).scalars().all()
+        fact_by_id = {f.id: f for f in facts}
+        if not fact_by_id:
+            return [], []
+
+        evidence_rows = (
+            await self._session.execute(
+                select(CaseFactEvidence).where(
+                    CaseFactEvidence.case_fact_id.in_(fact_by_id.keys()), CaseFactEvidence.document_id.in_(claim_document_ids)
+                )
+            )
+        ).scalars().all()
+
+        amounts: set[str] = set()
+        dates: set[str] = set()
+        for e in evidence_rows:
+            fact = fact_by_id[e.case_fact_id]
+            if not fact.normalized_value:
+                continue
+            if fact.fact_type == FactType.AMOUNT:
+                amounts.add(fact.normalized_value)
+            elif fact.fact_type == FactType.DATE:
+                dates.add(fact.normalized_value)
+        return sorted(amounts), sorted(dates)
+
+    async def get_master_report(self, case: Case) -> MasterCaseReport:
+        """Top-level synthesis — zero LLM calls, everything below is a
+        template rule keyed off already-persisted structured data. See
+        master_report.py's module docstring for the full discipline.
+        """
+        our_side_role = await self._determine_our_side_role(case)
+
+        allegation_rows = (
+            await self._session.execute(select(CaseAllegation).where(CaseAllegation.case_id == case.id))
+        ).scalars().all()
+        allegation_inputs = [
+            AllegationInput(
+                id=a.id, document_id=a.document_id, page_number=a.page_number, excerpt=a.excerpt, allegation_type=a.allegation_type
+            )
+            for a in allegation_rows
+        ]
+        allegation_types_present = {a.allegation_type for a in allegation_rows}
+
+        claim_evidence_contradictions = await self.get_claim_evidence_contradictions(case)
+        claim_theory_tensions = detect_claim_theory_tensions(allegation_inputs)
+
+        contract_case_documents = (
+            await self._session.execute(
+                select(CaseDocument).where(CaseDocument.case_id == case.id, CaseDocument.role == CaseDocumentRole.CONTRACT)
+            )
+        ).scalars().all()
+        contract_documents: list[tuple[uuid.UUID, str, str]] = []
+        for cd in contract_case_documents:
+            document = await self._session.get(Document, cd.document_id)
+            if document is not None:
+                contract_documents.append((document.id, document.title, document.extracted_text or ""))
+        contract_version_matrix = build_contract_version_matrix(contract_documents)
+
+        money_flow = await self.get_money_flow(case)
+        payment_pattern = detect_payment_pattern(
+            [t.payment_date for t in money_flow.transactions if t.payment_date is not None],
+            [t.payer for t in money_flow.transactions],
+            [t.recipient for t in money_flow.transactions],
+        )
+
+        party_relationship_findings = await self.get_party_relationship_findings(case)
+        result_summary = await self.get_result_summary(case)
+
+        related_litigation_rows = (
+            await self._session.execute(select(CaseRelatedLitigation).where(CaseRelatedLitigation.case_id == case.id))
+        ).scalars().all()
+        related_litigation_inputs = [
+            RelatedLitigationInput(
+                id=r.id, case_number=r.case_number, court=r.court, subject_matter=r.subject_matter,
+                amount_in_dispute=r.amount_in_dispute,
+            )
+            for r in related_litigation_rows
+        ]
+
+        document_ids = (
+            {a.document_id for a in allegation_rows}
+            | {t[0] for t in contract_documents}
+            | {f.source_document_id for f in party_relationship_findings if f.source_document_id}
+            | {i.source_document_id for i in result_summary.missing_critical_evidence if i.source_document_id}
+        )
+        document_titles: dict[uuid.UUID, str] = {}
+        for document_id in document_ids:
+            document = await self._session.get(Document, document_id)
+            if document is not None:
+                document_titles[document_id] = document.title
+
+        findings = build_claim_contradiction_findings(claim_evidence_contradictions, claim_theory_tensions, document_titles, our_side_role)
+        payment_finding = build_payment_pattern_finding(payment_pattern)
+        if payment_finding is not None:
+            findings.append(payment_finding)
+        mismatch_finding = build_contract_mismatch_finding(contract_version_matrix, money_flow.total_amount)
+        if mismatch_finding is not None:
+            findings.append(mismatch_finding)
+        findings.extend(build_contract_formation_findings(contract_version_matrix))
+        findings.extend(build_evidence_gap_findings(result_summary.missing_critical_evidence))
+        findings.extend(build_corporate_relationship_findings(party_relationship_findings))
+        findings.extend(build_related_litigation_findings(related_litigation_inputs))
+        findings = rank_findings(findings)
+
+        claim_contradiction_findings = [f for f in findings if f.category.value == "claim_contradiction"]
+        burden_map = build_burden_map(allegation_types_present, claim_contradiction_findings, our_side_role)
+
+        claim_amounts, claim_dates = await self._claim_document_facts(case)
+        case_map = build_case_map(claim_amounts, claim_dates)
+
+        court_scenarios = build_court_scenarios(findings)
+        opposing_party_questions = build_opposing_party_questions(findings)
+        draft_response_structure = build_draft_response_structure(findings)
+        next_best_action = result_summary.next_best_actions[0].action if result_summary.next_best_actions else None
+        one_pager = build_one_pager(findings, money_flow.total_amount, next_best_action)
+
+        return MasterCaseReport(
+            one_pager=one_pager, case_map=case_map, findings=findings, burden_map=burden_map,
+            court_scenarios=court_scenarios, opposing_party_questions=opposing_party_questions,
+            draft_response_structure=draft_response_structure, contract_version_matrix=contract_version_matrix,
+            money_flow=money_flow, legal_kb_warning=result_summary.legal_kb_warning,
+        )
