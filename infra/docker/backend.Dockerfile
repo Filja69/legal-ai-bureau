@@ -6,6 +6,15 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     POETRY_VIRTUALENVS_CREATE=false
 
+# OCR fallback for scanned PDFs (app/documents/ocr/) — tesseract-ocr already
+# includes English language data on Debian; tesseract-ocr-rus adds Russian.
+# No poppler-utils needed: pypdfium2 rasterizes PDF pages to images with its
+# own bundled binary, so this is the ONLY system package OCR needs.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    tesseract-ocr \
+    tesseract-ocr-rus \
+    && rm -rf /var/lib/apt/lists/*
+
 RUN pip install --no-cache-dir poetry==1.8.3
 
 COPY backend/pyproject.toml backend/poetry.lock* /app/

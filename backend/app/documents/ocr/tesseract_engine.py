@@ -6,8 +6,8 @@ this project doesn't have standing to assume. Tesseract runs entirely
 inside the Railway container — nothing leaves the process.
 
 Requires the `tesseract` binary (+ the Russian language pack) to be present
-on PATH — installed via `nixpacks.toml`'s `aptPkgs` in production. Never
-imported/instantiated eagerly at module load: `get_ocr_engine()` (registry.py)
+on PATH — installed via `infra/docker/backend.Dockerfile` in production.
+Never imported/instantiated eagerly at module load: `get_ocr_engine()` (registry.py)
 probes for the binary at call time and returns `None` if it's missing, so a
 dev/CI environment without Tesseract installed degrades to the pre-existing
 `OCR_REQUIRED` behavior instead of crashing the app at import time.

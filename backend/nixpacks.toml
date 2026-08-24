@@ -1,7 +1,0 @@
-# Railway build config (Nixpacks) — adds the system-level `tesseract`
-# binary + Russian language pack that app/documents/ocr/tesseract_engine.py
-# needs. Everything else (Poetry install, uvicorn start command) is left to
-# Nixpacks' existing Python auto-detection; this file only adds the one
-# extra system package this project didn't need before OCR support.
-[phases.setup]
-aptPkgs = ["tesseract-ocr", "tesseract-ocr-rus"]
