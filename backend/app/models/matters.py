@@ -366,6 +366,16 @@ class CaseEvent(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     description: Mapped[str] = mapped_column(Text, nullable=False)
     event_type: Mapped[str | None] = mapped_column(String(64))
     source_fact_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("case_facts.id", ondelete="SET NULL"))
+    # Added for the Case Intelligence layer (party relationships) — mirrors
+    # source_fact_id exactly, lets a relationship-derived event (e.g.
+    # "shareholder_change") populate the timeline without a synthetic
+    # CaseFact and without touching timeline_builder.py/build_timeline() at
+    # all. Exactly one of source_fact_id/source_relationship_id is set in
+    # practice, but this is a convention enforced by the writers, not a DB
+    # constraint — either can legitimately be absent (e.g. a manually added event).
+    source_relationship_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("case_party_relationships.id", ondelete="SET NULL")
+    )
 
 
 class ContradictionType(str, enum.Enum):
@@ -478,3 +488,125 @@ class CasePaymentOrder(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         pg_enum(PaymentExecutionStatus), default=PaymentExecutionStatus.UNKNOWN
     )
     excerpt: Mapped[str] = mapped_column(Text, nullable=False)
+
+
+# --- Party relationships, hypothesis register, related litigation (Case
+# Intelligence layer built on top of E1-E4 — party/corporate relationships,
+# a unified event timeline, temporal analysis, and explicit fact/hypothesis
+# discipline). Deliberately reuses CaseParty as both endpoints of a
+# relationship (a person and the entity they're linked to) rather than
+# adding separate Person/LegalEntity tables — CaseParty.party_type already
+# distinguishes them. Nothing here infers actual knowledge/intent from
+# relationship status alone; see case_relationships.py's module docstring. ---
+
+
+class RelationshipType(str, enum.Enum):
+    """DIRECTOR/SHAREHOLDER/MEMBER cover the two distinct Russian corporate
+    forms this matters for: акционер (АО, "shareholder") vs участник (ООО,
+    "member") — deliberately not collapsed into one value, since which one
+    applies is itself a fact worth getting right, not a detail to blur.
+    """
+
+    DIRECTOR = "director"
+    SHAREHOLDER = "shareholder"
+    MEMBER = "member"
+    OTHER = "other"
+
+
+class RelationshipVerificationStatus(str, enum.Enum):
+    """brief: never silently promote a relationship claim's confidence.
+    UNVERIFIED is the only status this domain's own extraction ever sets —
+    DOCUMENT_SUPPORTED/EXTERNALLY_VERIFIED/CONFLICTING exist for a human
+    (or a future verification step) to set explicitly, never inferred.
+    """
+
+    UNVERIFIED = "unverified"
+    DOCUMENT_SUPPORTED = "document_supported"
+    EXTERNALLY_VERIFIED = "externally_verified"
+    CONFLICTING = "conflicting"
+
+
+class CasePartyRelationship(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    """A claimed relationship between two CaseParty rows (e.g. "person X is
+    director of entity Y") — always carries real provenance (source_document_id
+    + source_excerpt) and a verification_status that starts UNVERIFIED and is
+    never auto-upgraded. `subject_party_id` is the party WHO HOLDS the role;
+    `related_party_id` is the entity the role is IN.
+    """
+
+    __tablename__ = "case_party_relationships"
+
+    workspace_id: Mapped[uuid.UUID] = workspace_fk()
+    case_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("cases.id", ondelete="CASCADE"), nullable=False, index=True)
+    subject_party_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("case_parties.id", ondelete="CASCADE"), nullable=False
+    )
+    related_party_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("case_parties.id", ondelete="CASCADE"), nullable=False
+    )
+    relationship_type: Mapped[RelationshipType] = mapped_column(pg_enum(RelationshipType), nullable=False)
+    # decimal-as-string, e.g. "25.00" — never computed, only transcribed
+    ownership_percentage: Mapped[str | None] = mapped_column(String(16))
+    start_date: Mapped[date | None] = mapped_column(Date)
+    end_date: Mapped[date | None] = mapped_column(Date)
+    source_document_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("documents.id", ondelete="SET NULL"))
+    source_excerpt: Mapped[str | None] = mapped_column(Text)
+    verification_status: Mapped[RelationshipVerificationStatus] = mapped_column(
+        pg_enum(RelationshipVerificationStatus), default=RelationshipVerificationStatus.UNVERIFIED, nullable=False
+    )
+    notes: Mapped[str | None] = mapped_column(Text)
+
+
+class HypothesisCategory(str, enum.Enum):
+    """The one rule this whole layer exists to enforce: a claim is always
+    tagged with where it came from and how sure anyone can be of it — never
+    silently treated as more established than it is. FACT requires the same
+    real-provenance discipline as CaseFact.SUPPORTED; COUNSEL_HYPOTHESIS is
+    exactly what outside counsel asserted, verbatim in intent, never
+    rephrased into a stronger claim; AI_INFERENCE is this system's own
+    derived observation (e.g. a temporal-overlap note), always carrying its
+    own caveat; MISSING_EVIDENCE names a gap, not a claim.
+    """
+
+    FACT = "fact"
+    COUNSEL_HYPOTHESIS = "counsel_hypothesis"
+    AI_INFERENCE = "ai_inference"
+    MISSING_EVIDENCE = "missing_evidence"
+
+
+class CaseHypothesis(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    __tablename__ = "case_hypotheses"
+
+    workspace_id: Mapped[uuid.UUID] = workspace_fk()
+    case_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("cases.id", ondelete="CASCADE"), nullable=False, index=True)
+    category: Mapped[HypothesisCategory] = mapped_column(pg_enum(HypothesisCategory), nullable=False)
+    statement: Mapped[str] = mapped_column(Text, nullable=False)
+    # JSONB list[str] of what would be needed to move this toward FACT — e.g.
+    # ["EGRUL history", "участников reestr", "переписка о доступе к информации"].
+    required_verification: Mapped[list] = mapped_column(JSONB, default=list)
+    related_relationship_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("case_party_relationships.id", ondelete="SET NULL")
+    )
+    # e.g. "counsel", "system" — free text, not an enum: who said this is
+    # metadata, not a claim needing verification discipline.
+    source: Mapped[str | None] = mapped_column(String(64))
+
+
+class CaseRelatedLitigation(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    """Another court matter attached as CONTEXT only — never a claimed cause
+    of the current case. `note` must never assert causation (enforced in
+    case_relationships.py's synthesis layer, not here); this table only
+    stores what counsel reported about the other matter.
+    """
+
+    __tablename__ = "case_related_litigation"
+
+    workspace_id: Mapped[uuid.UUID] = workspace_fk()
+    case_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("cases.id", ondelete="CASCADE"), nullable=False, index=True)
+    court: Mapped[str | None] = mapped_column(String(255))
+    case_number: Mapped[str | None] = mapped_column(String(128))
+    parties_description: Mapped[str | None] = mapped_column(Text)
+    subject_matter: Mapped[str | None] = mapped_column(Text)
+    amount_in_dispute: Mapped[str | None] = mapped_column(String(32))
+    status: Mapped[str | None] = mapped_column(String(64))
+    note: Mapped[str | None] = mapped_column(Text)

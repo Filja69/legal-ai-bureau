@@ -12,9 +12,12 @@ from app.models.matters import (
     DateType,
     FactStatus,
     FactType,
+    HypothesisCategory,
     PartyType,
     PaymentExecutionStatus,
     ProceduralRole,
+    RelationshipType,
+    RelationshipVerificationStatus,
 )
 
 
@@ -218,6 +221,21 @@ class NextBestActionOut(BaseModel):
     why: str
 
 
+class PartyRelationshipFindingOut(BaseModel):
+    subject_name: str
+    related_party_name: str
+    relationship_type: RelationshipType
+    relationship_start: date | None
+    relationship_end: date | None
+    timing_note: str
+    why_it_may_matter: str
+    what_is_still_needed: list[str]
+    verification_status: RelationshipVerificationStatus
+    source_document_id: uuid.UUID | None
+    source_document_title: str | None
+    source_excerpt: str | None
+
+
 class CaseResultSummaryOut(BaseModel):
     case_snapshot: CaseSnapshotOut
     key_findings: list[KeyFindingOut]
@@ -226,3 +244,84 @@ class CaseResultSummaryOut(BaseModel):
     missing_critical_evidence: list[MissingEvidenceItemOut]
     next_best_actions: list[NextBestActionOut]
     legal_kb_warning: str | None
+    party_relationship_findings: list[PartyRelationshipFindingOut] = []
+
+
+# --- Case Intelligence: party relationships, hypothesis register, related litigation ---
+
+
+class CasePartyRelationshipCreate(BaseModel):
+    subject_party_id: uuid.UUID
+    related_party_id: uuid.UUID
+    relationship_type: RelationshipType
+    ownership_percentage: str | None = None
+    start_date: date | None = None
+    end_date: date | None = None
+    source_document_id: uuid.UUID | None = None
+    source_excerpt: str | None = None
+    verification_status: RelationshipVerificationStatus = RelationshipVerificationStatus.UNVERIFIED
+    notes: str | None = None
+
+
+class CasePartyRelationshipOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    case_id: uuid.UUID
+    subject_party_id: uuid.UUID
+    related_party_id: uuid.UUID
+    relationship_type: RelationshipType
+    ownership_percentage: str | None
+    start_date: date | None
+    end_date: date | None
+    source_document_id: uuid.UUID | None
+    source_excerpt: str | None
+    verification_status: RelationshipVerificationStatus
+    notes: str | None
+
+
+class CaseHypothesisCreate(BaseModel):
+    category: HypothesisCategory
+    statement: str
+    required_verification: list[str] = []
+    related_relationship_id: uuid.UUID | None = None
+    source: str | None = None
+
+
+class CaseHypothesisOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    case_id: uuid.UUID
+    category: HypothesisCategory
+    statement: str
+    required_verification: list[str]
+    related_relationship_id: uuid.UUID | None
+    source: str | None
+
+
+class CaseRelatedLitigationCreate(BaseModel):
+    court: str | None = None
+    case_number: str | None = None
+    parties_description: str | None = None
+    subject_matter: str | None = None
+    amount_in_dispute: str | None = None
+    status: str | None = None
+    note: str | None = None
+
+
+class CaseRelatedLitigationOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    case_id: uuid.UUID
+    court: str | None
+    case_number: str | None
+    parties_description: str | None
+    subject_matter: str | None
+    amount_in_dispute: str | None
+    status: str | None
+    note: str | None
+    # Computed at read time, never stored verbatim as a causal claim — see
+    # case_relationships.py's build_related_litigation_note().
+    contextual_note: str

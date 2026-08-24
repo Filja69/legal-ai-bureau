@@ -28,6 +28,7 @@ from dataclasses import dataclass
 from datetime import date
 from typing import TYPE_CHECKING
 
+from app.domains.litigation.case_relationships import PartyRelationshipFinding
 from app.domains.litigation.contradiction_detector import ClaimEvidenceContradiction, ContradictionCandidate
 from app.models.matters import CaseDocumentRole, ContradictionType
 
@@ -88,6 +89,10 @@ class CaseResultSummary:
     missing_critical_evidence: list[MissingEvidenceItem]
     next_best_actions: list[NextBestAction]
     legal_kb_warning: str | None
+    # Case Intelligence layer (party/corporate relationships) — computed
+    # separately in case_relationships.py and passed through here rather
+    # than recomputed, since neither module depends on the other.
+    party_relationship_findings: list[PartyRelationshipFinding]
 
 
 # --- Contract signature status (fix for the production validation gap: a
@@ -327,6 +332,7 @@ def build_case_result_summary(
     contract_amount_candidates: list[str],
     contract_documents: list[tuple[uuid.UUID, str, str]],
     kb_is_empty: bool,
+    party_relationship_findings: list[PartyRelationshipFinding] | None = None,
 ) -> CaseResultSummary:
     case_snapshot = CaseSnapshot(
         party_names=party_names,
@@ -389,4 +395,5 @@ def build_case_result_summary(
         missing_critical_evidence=missing_items,
         next_best_actions=next_best_actions,
         legal_kb_warning=_KB_WARNING if kb_is_empty else None,
+        party_relationship_findings=party_relationship_findings or [],
     )

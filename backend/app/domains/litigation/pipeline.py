@@ -18,6 +18,12 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domains.litigation.allegation_extractor import ALLEGATION_ELIGIBLE_ROLES, extract_allegation_candidates
+from app.domains.litigation.case_relationships import (
+    CaseHypothesisInput,
+    CasePartyRelationshipInput,
+    PartyRelationshipFinding,
+    build_party_relationship_findings,
+)
 from app.domains.litigation.case_result_summary import CaseResultSummary, build_case_result_summary
 from app.domains.litigation.contradiction_detector import (
     AllegationInput,
@@ -42,14 +48,18 @@ from app.models.matters import (
     CaseEvent,
     CaseFact,
     CaseFactEvidence,
+    CaseHypothesis,
     CaseParty,
+    CasePartyRelationship,
     CasePaymentOrder,
+    DateType,
     Document,
     DocumentChunk,
     DocumentStatus,
     FactStatus,
     FactType,
     PaymentExecutionStatus,
+    RelationshipType,
 )
 
 logger = structlog.get_logger(__name__)
@@ -509,6 +519,8 @@ class LitigationCaseEngine:
 
         kb_count = (await self._session.execute(select(func.count()).select_from(LawVersion))).scalar_one()
 
+        party_relationship_findings = await self.get_party_relationship_findings(case)
+
         return build_case_result_summary(
             party_names=[p.name for p in parties],
             document_count=len(case_documents),
@@ -521,4 +533,117 @@ class LitigationCaseEngine:
             contract_amount_candidates=contract_amount_candidates,
             contract_documents=contract_documents,
             kb_is_empty=kb_count == 0,
+            party_relationship_findings=party_relationship_findings,
         )
+
+    # --- Case Intelligence: party relationships (built on top of E1-E4,
+    # never touching build_timeline()/detect_and_persist_contradictions()/
+    # money-flow logic). CasePartyRelationship/CaseHypothesis/
+    # CaseRelatedLitigation rows are written directly by the API layer
+    # (they're counsel-provided data, not extracted from documents) — this
+    # engine only computes the read-time timing analysis and syncs
+    # relationship-derived CaseEvent rows. ---
+
+    _RELATIONSHIP_EVENT_TYPE: dict[RelationshipType, str] = {
+        RelationshipType.DIRECTOR: "director_change",
+        RelationshipType.SHAREHOLDER: "shareholder_change",
+        RelationshipType.MEMBER: "shareholder_change",
+        RelationshipType.OTHER: "corporate_event",
+    }
+
+    async def sync_relationship_timeline_events(self, case: Case) -> list[CaseEvent]:
+        """Idempotent delete-then-insert, scoped to source_relationship_id
+        IS NOT NULL — never touches fact-derived events (source_fact_id),
+        and build_timeline() never touches these. One event per
+        relationship start_date, and one more if end_date is set.
+        """
+        relationships = (
+            await self._session.execute(select(CasePartyRelationship).where(CasePartyRelationship.case_id == case.id))
+        ).scalars().all()
+
+        await self._session.execute(
+            delete(CaseEvent).where(CaseEvent.case_id == case.id, CaseEvent.source_relationship_id.isnot(None))
+        )
+        await self._session.flush()
+
+        party_ids = {r.subject_party_id for r in relationships} | {r.related_party_id for r in relationships}
+        party_names: dict[uuid.UUID, str] = {}
+        for party_id in party_ids:
+            party = await self._session.get(CaseParty, party_id)
+            if party is not None:
+                party_names[party_id] = party.name
+
+        events: list[CaseEvent] = []
+        for rel in relationships:
+            subject_name = party_names.get(rel.subject_party_id, "(unknown)")
+            related_name = party_names.get(rel.related_party_id, "(unknown)")
+            event_type = self._RELATIONSHIP_EVENT_TYPE[rel.relationship_type]
+            if rel.start_date is not None:
+                event = CaseEvent(
+                    workspace_id=case.workspace_id, case_id=case.id, event_date=rel.start_date, date_type=DateType.EXACT,
+                    description=f"{subject_name} становится «{rel.relationship_type.value}» в «{related_name}»",
+                    event_type=event_type, source_relationship_id=rel.id,
+                )
+                self._session.add(event)
+                events.append(event)
+            if rel.end_date is not None:
+                event = CaseEvent(
+                    workspace_id=case.workspace_id, case_id=case.id, event_date=rel.end_date, date_type=DateType.EXACT,
+                    description=f"{subject_name} перестаёт быть «{rel.relationship_type.value}» в «{related_name}»",
+                    event_type=event_type, source_relationship_id=rel.id,
+                )
+                self._session.add(event)
+                events.append(event)
+        await self._session.flush()
+        return events
+
+    async def get_party_relationship_findings(self, case: Case) -> list[PartyRelationshipFinding]:
+        """Computed at read time — cross-references relationship timing
+        against this case's own payment dates (Money Flow), never inferring
+        knowledge from status alone; see case_relationships.py.
+        """
+        relationships = (
+            await self._session.execute(select(CasePartyRelationship).where(CasePartyRelationship.case_id == case.id))
+        ).scalars().all()
+        if not relationships:
+            return []
+
+        party_ids = {r.subject_party_id for r in relationships} | {r.related_party_id for r in relationships}
+        party_names: dict[uuid.UUID, str] = {}
+        for party_id in party_ids:
+            party = await self._session.get(CaseParty, party_id)
+            if party is not None:
+                party_names[party_id] = party.name
+
+        document_ids = {r.source_document_id for r in relationships if r.source_document_id is not None}
+        document_titles: dict[uuid.UUID, str] = {}
+        for document_id in document_ids:
+            document = await self._session.get(Document, document_id)
+            if document is not None:
+                document_titles[document_id] = document.title
+
+        hypotheses_rows = (
+            await self._session.execute(select(CaseHypothesis).where(CaseHypothesis.case_id == case.id))
+        ).scalars().all()
+        hypotheses = [
+            CaseHypothesisInput(
+                id=h.id, category=h.category, statement=h.statement,
+                required_verification=list(h.required_verification or []), related_relationship_id=h.related_relationship_id,
+            )
+            for h in hypotheses_rows
+        ]
+
+        money_flow = await self.get_money_flow(case)
+        reference_dates = [t.payment_date for t in money_flow.transactions if t.payment_date is not None]
+
+        relationship_inputs = [
+            CasePartyRelationshipInput(
+                id=r.id, subject_party_id=r.subject_party_id, subject_name=party_names.get(r.subject_party_id, "(unknown)"),
+                related_party_id=r.related_party_id, related_party_name=party_names.get(r.related_party_id, "(unknown)"),
+                relationship_type=r.relationship_type, start_date=r.start_date, end_date=r.end_date,
+                verification_status=r.verification_status, source_document_id=r.source_document_id, source_excerpt=r.source_excerpt,
+            )
+            for r in relationships
+        ]
+
+        return build_party_relationship_findings(relationship_inputs, reference_dates, hypotheses, document_titles)

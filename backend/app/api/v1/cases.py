@@ -25,6 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.v1.research import ResearchRequest, research
 from app.db.session import get_session
 from app.domains.legal_research.models import ResearchMode
+from app.domains.litigation.case_relationships import build_related_litigation_note
 from app.domains.litigation.pipeline import LitigationCaseEngine
 from app.models.matters import (
     Case,
@@ -34,12 +35,18 @@ from app.models.matters import (
     CaseEvent,
     CaseFact,
     CaseFactEvidence,
+    CaseHypothesis,
     CaseParty,
+    CasePartyRelationship,
     CasePaymentOrder,
+    CaseRelatedLitigation,
     Document,
 )
 from app.repositories.case_document_repository import CaseDocumentRepository
+from app.repositories.case_hypothesis_repository import CaseHypothesisRepository
+from app.repositories.case_party_relationship_repository import CasePartyRelationshipRepository
 from app.repositories.case_party_repository import CasePartyRepository
+from app.repositories.case_related_litigation_repository import CaseRelatedLitigationRepository
 from app.repositories.case_repository import CaseRepository
 from app.repositories.document_repository import DocumentRepository
 from app.schemas.case import CaseCreate, CaseOut
@@ -51,9 +58,15 @@ from app.schemas.litigation import (
     CaseEventOut,
     CaseFactEvidenceOut,
     CaseFactOut,
+    CaseHypothesisCreate,
+    CaseHypothesisOut,
     CasePartyCreate,
     CasePartyOut,
+    CasePartyRelationshipCreate,
+    CasePartyRelationshipOut,
     CasePaymentOrderOut,
+    CaseRelatedLitigationCreate,
+    CaseRelatedLitigationOut,
     CaseResultSummaryOut,
     CaseSnapshotOut,
     ClaimEvidenceContradictionOut,
@@ -63,6 +76,7 @@ from app.schemas.litigation import (
     MoneyFlowOut,
     MoneyFlowTransactionOut,
     NextBestActionOut,
+    PartyRelationshipFindingOut,
 )
 from app.security.deps import get_current_user, get_workspace_id
 
@@ -646,6 +660,156 @@ async def get_case_result_summary(
             NextBestActionOut(priority=a.priority, action=a.action, why=a.why) for a in summary.next_best_actions
         ],
         legal_kb_warning=summary.legal_kb_warning,
+        party_relationship_findings=[
+            PartyRelationshipFindingOut(
+                subject_name=f.subject_name, related_party_name=f.related_party_name, relationship_type=f.relationship_type,
+                relationship_start=f.relationship_start, relationship_end=f.relationship_end, timing_note=f.timing_note,
+                why_it_may_matter=f.why_it_may_matter, what_is_still_needed=f.what_is_still_needed,
+                verification_status=f.verification_status, source_document_id=f.source_document_id,
+                source_document_title=f.source_document_title, source_excerpt=f.source_excerpt,
+            )
+            for f in summary.party_relationship_findings
+        ],
+    )
+
+
+# --- Case Intelligence: party/corporate relationships, hypothesis register,
+# related litigation (built on top of E1-E4 — never touches allegations/
+# payment-orders/claim-vs-evidence/money-flow persistence or logic). These
+# are counsel-provided data, not extracted from documents, so the API
+# persists them directly via a plain repository rather than an extractor. ---
+
+
+@router.get("/cases/{case_id}/party-relationships", response_model=list[CasePartyRelationshipOut])
+async def list_case_party_relationships(
+    case_id: uuid.UUID,
+    workspace_id: uuid.UUID = Depends(get_workspace_id),
+    user=Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> list[CasePartyRelationship]:
+    await _get_case_or_404(session, workspace_id, case_id)
+    result = await session.execute(select(CasePartyRelationship).where(CasePartyRelationship.case_id == case_id))
+    return list(result.scalars().all())
+
+
+@router.post("/cases/{case_id}/party-relationships", response_model=CasePartyRelationshipOut, status_code=status.HTTP_201_CREATED)
+async def add_case_party_relationship(
+    case_id: uuid.UUID,
+    body: CasePartyRelationshipCreate,
+    workspace_id: uuid.UUID = Depends(get_workspace_id),
+    user=Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> CasePartyRelationship:
+    await _get_case_or_404(session, workspace_id, case_id)
+    for party_id in (body.subject_party_id, body.related_party_id):
+        party = await CasePartyRepository(session, workspace_id).get(party_id)
+        if party is None or party.case_id != case_id:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Party not found in this case")
+
+    relationship = CasePartyRelationship(workspace_id=workspace_id, case_id=case_id, **body.model_dump())
+    relationship = await CasePartyRelationshipRepository(session, workspace_id).add(relationship)
+    await session.commit()
+    logger.info(
+        "case_party_relationship_added", case_id=str(case_id), relationship_type=body.relationship_type.value,
+        verification_status=body.verification_status.value,
+    )
+    return relationship
+
+
+@router.post("/cases/{case_id}/party-relationships/sync-timeline", response_model=list[CaseEventOut])
+async def sync_case_party_relationship_timeline(
+    case_id: uuid.UUID,
+    workspace_id: uuid.UUID = Depends(get_workspace_id),
+    user=Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> list[CaseEvent]:
+    """Idempotent — deliberately a separate endpoint from POST /analyze
+    (brief §33) rather than folded into it, so the already-validated E1-E4
+    one-shot flow is never touched by this layer.
+    """
+    case = await _get_case_or_404(session, workspace_id, case_id)
+    engine = LitigationCaseEngine(session)
+    events = await engine.sync_relationship_timeline_events(case)
+    await session.commit()
+    return events
+
+
+@router.get("/cases/{case_id}/hypotheses", response_model=list[CaseHypothesisOut])
+async def list_case_hypotheses(
+    case_id: uuid.UUID,
+    workspace_id: uuid.UUID = Depends(get_workspace_id),
+    user=Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> list[CaseHypothesis]:
+    await _get_case_or_404(session, workspace_id, case_id)
+    result = await session.execute(select(CaseHypothesis).where(CaseHypothesis.case_id == case_id))
+    return list(result.scalars().all())
+
+
+@router.post("/cases/{case_id}/hypotheses", response_model=CaseHypothesisOut, status_code=status.HTTP_201_CREATED)
+async def add_case_hypothesis(
+    case_id: uuid.UUID,
+    body: CaseHypothesisCreate,
+    workspace_id: uuid.UUID = Depends(get_workspace_id),
+    user=Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> CaseHypothesis:
+    """No auto-promotion path exists anywhere in this codebase from
+    COUNSEL_HYPOTHESIS/AI_INFERENCE to FACT — that transition, if it ever
+    happens, is a deliberate human decision made by creating a new row, not
+    a status flip on this one.
+    """
+    await _get_case_or_404(session, workspace_id, case_id)
+    if body.related_relationship_id is not None:
+        relationship = await CasePartyRelationshipRepository(session, workspace_id).get(body.related_relationship_id)
+        if relationship is None or relationship.case_id != case_id:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Related relationship not found in this case")
+
+    hypothesis = CaseHypothesis(workspace_id=workspace_id, case_id=case_id, **body.model_dump())
+    hypothesis = await CaseHypothesisRepository(session, workspace_id).add(hypothesis)
+    await session.commit()
+    logger.info("case_hypothesis_added", case_id=str(case_id), category=body.category.value)
+    return hypothesis
+
+
+@router.get("/cases/{case_id}/related-litigation", response_model=list[CaseRelatedLitigationOut])
+async def list_case_related_litigation(
+    case_id: uuid.UUID,
+    workspace_id: uuid.UUID = Depends(get_workspace_id),
+    user=Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> list[CaseRelatedLitigationOut]:
+    await _get_case_or_404(session, workspace_id, case_id)
+    result = await session.execute(select(CaseRelatedLitigation).where(CaseRelatedLitigation.case_id == case_id))
+    rows = result.scalars().all()
+    return [
+        CaseRelatedLitigationOut(
+            id=r.id, case_id=r.case_id, court=r.court, case_number=r.case_number, parties_description=r.parties_description,
+            subject_matter=r.subject_matter, amount_in_dispute=r.amount_in_dispute, status=r.status, note=r.note,
+            contextual_note=build_related_litigation_note(r.case_number),
+        )
+        for r in rows
+    ]
+
+
+@router.post("/cases/{case_id}/related-litigation", response_model=CaseRelatedLitigationOut, status_code=status.HTTP_201_CREATED)
+async def add_case_related_litigation(
+    case_id: uuid.UUID,
+    body: CaseRelatedLitigationCreate,
+    workspace_id: uuid.UUID = Depends(get_workspace_id),
+    user=Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> CaseRelatedLitigationOut:
+    await _get_case_or_404(session, workspace_id, case_id)
+    related = CaseRelatedLitigation(workspace_id=workspace_id, case_id=case_id, **body.model_dump())
+    related = await CaseRelatedLitigationRepository(session, workspace_id).add(related)
+    await session.commit()
+    logger.info("case_related_litigation_added", case_id=str(case_id), case_number=body.case_number)
+    return CaseRelatedLitigationOut(
+        id=related.id, case_id=related.case_id, court=related.court, case_number=related.case_number,
+        parties_description=related.parties_description, subject_matter=related.subject_matter,
+        amount_in_dispute=related.amount_in_dispute, status=related.status, note=related.note,
+        contextual_note=build_related_litigation_note(related.case_number),
     )
 
 
