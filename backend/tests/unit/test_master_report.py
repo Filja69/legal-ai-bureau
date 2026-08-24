@@ -118,6 +118,17 @@ def test_extract_contract_terms_finds_amount_rate_maturity_and_formation_clause(
     assert terms.formation_clause_present is True
 
 
+def test_extract_contract_terms_amount_with_parenthetical_spellout():
+    """Real Russian loan agreements commonly write the amount as digits
+    followed by a parenthetical spellout before the currency word
+    ("6300000 (шесть миллионов триста тысяч) рублей") — a general
+    formatting convention, not specific to any one document.
+    """
+    text = "Займодавец передает Заемщику сумму займа 6300000 (шесть миллионов триста тысяч) рублей 00 копеек."
+    terms = extract_contract_terms(_DOC_A, "contract.txt", text)
+    assert "6300000.00" in terms.amounts
+
+
 def test_extract_contract_terms_unsigned_draft_detected():
     text = "Проект договора займа. Займодавец________________ Заемщик________________"
     terms = extract_contract_terms(_DOC_A, "draft.txt", text)

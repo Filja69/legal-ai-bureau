@@ -24,8 +24,14 @@ DATE_WORDY = re.compile(
     r"|август[а-я]*|сентябр[а-я]+|октябр[а-я]+|ноябр[а-я]+|декабр[а-я]+)\s+\d{4}\s*г?\.?",
     re.IGNORECASE,
 )
+# The optional (?:\([^)]{0,40}\)\s*)? bridges a parenthetical amount-in-words
+# spellout between the digits and the currency word — a standard Russian
+# legal-document convention ("5000000 (пять миллионов) рублей") that would
+# otherwise never match, since \s* alone can't span the parenthetical. Bounded
+# to 40 chars so an unrelated parenthetical elsewhere in the sentence can't be
+# swept in.
 AMOUNT = re.compile(
-    r"\b\d+(?:[  ]\d{3})*(?:[.,]\d{2})?\s*(?:руб(?:лей|ля)?|₽|USD|\$|EUR|€)\b", re.IGNORECASE
+    r"\b\d+(?:[  ]\d{3})*(?:[.,]\d{2})?\s*(?:\([^)]{0,40}\)\s*)?(?:руб(?:лей|ля)?|₽|USD|\$|EUR|€)\b", re.IGNORECASE
 )
 PARTY_ENTITY = re.compile(r'(?:ООО|АО|ПАО|ЗАО|ИП)\s*[«"]([^»"]+)[»"]')
 PARTY_ROLE = re.compile(
