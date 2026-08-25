@@ -6,6 +6,7 @@ import axios from "axios";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { listDocuments, uploadDocument } from "@/api/documents";
 import { useAuth } from "@/hooks/useAuth";
+import { Button, Card, Notice, PageHeader } from "@/components/ui";
 import { DocumentStatusBadge } from "./DocumentStatusBadge";
 
 const TYPE_LABEL: Record<string, string> = {
@@ -54,51 +55,62 @@ export function DocumentsView() {
   }
 
   if (!workspaceId) {
-    return <div className="p-8 text-sm text-slate-500">Выберите рабочее пространство, чтобы увидеть документы.</div>;
+    return <div className="p-8 text-sm text-muted">Выберите рабочее пространство, чтобы увидеть документы.</div>;
   }
 
   return (
-    <div className="mx-auto max-w-3xl p-4 sm:p-8">
-      <h1 className="text-2xl font-semibold">Документы</h1>
-      <p className="mt-2 text-sm text-slate-400">
-        PDF (с текстовым слоем), DOCX, TXT и XLSX автоматически распознаются, разбиваются на фрагменты и
-        индексируются при загрузке. Сканы PDF без текстового слоя честно помечаются{" "}
-        <span className="font-medium text-amber-400">ТРЕБУЕТСЯ OCR</span> — OCR пока не реализован.
-      </p>
+    <div className="mx-auto max-w-5xl p-4 sm:p-8">
+      <PageHeader
+        title="Документы"
+        description={
+          <>
+            PDF (с текстовым слоем), DOCX, TXT и XLSX автоматически распознаются, разбиваются на фрагменты и
+            индексируются при загрузке. Сканы PDF без текстового слоя честно помечаются{" "}
+            <span className="font-semibold text-warning">ТРЕБУЕТСЯ OCR</span> — OCR пока не реализован.
+          </>
+        }
+      />
 
-      <div className="mt-4 flex flex-col items-start gap-3 sm:flex-row sm:items-center">
-        <input ref={fileInput} type="file" accept=".pdf,.docx,.txt,.xlsx,.csv,.png,.jpg,.jpeg" className="w-full text-sm sm:w-auto" />
-        <button
-          onClick={handleUpload}
-          disabled={uploading}
-          className="rounded bg-slate-700 px-3 py-1.5 text-sm hover:bg-slate-600 disabled:opacity-50"
-        >
-          {uploading ? "Загрузка…" : "Загрузить"}
-        </button>
-      </div>
-      {error && <p className="mt-2 text-sm text-red-400">{error}</p>}
+      <Card className="mb-8">
+        <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center">
+          <input
+            ref={fileInput}
+            type="file"
+            accept=".pdf,.docx,.txt,.xlsx,.csv,.png,.jpg,.jpeg"
+            className="w-full text-sm text-ink sm:w-auto"
+          />
+          <Button variant="primary" onClick={handleUpload} disabled={uploading}>
+            {uploading ? "Загрузка…" : "Загрузить"}
+          </Button>
+        </div>
+        {error && (
+          <div className="mt-3">
+            <Notice tone="danger">{error}</Notice>
+          </div>
+        )}
+      </Card>
 
-      <section className="mt-8">
-        <h2 className="text-lg font-medium">Загруженные документы</h2>
-        {documentsQuery.isLoading && <p className="mt-2 text-sm text-slate-500">Загрузка…</p>}
-        {documentsQuery.isError && <p className="mt-2 text-sm text-red-400">Не удалось загрузить список документов.</p>}
-        {documentsQuery.data?.length === 0 && <p className="mt-2 text-sm text-slate-500">Пока нет документов.</p>}
-        <ul className="mt-2 space-y-2">
+      <section>
+        <h2 className="mb-3 text-lg font-semibold text-ink">Загруженные документы</h2>
+        {documentsQuery.isLoading && <p className="text-sm text-muted">Загрузка…</p>}
+        {documentsQuery.isError && <p className="text-sm text-danger">Не удалось загрузить список документов.</p>}
+        {documentsQuery.data?.length === 0 && <p className="text-sm text-muted">Пока нет документов.</p>}
+        <div className="space-y-2.5">
           {documentsQuery.data?.map((doc) => (
-            <li key={doc.id} className="flex flex-wrap items-center justify-between gap-2 rounded border border-slate-800 p-3 text-sm">
+            <Card key={doc.id} className="flex flex-wrap items-center justify-between gap-2 p-3.5">
               <div className="min-w-0">
-                <Link href={`/documents/${doc.id}`} className="font-medium text-slate-200 hover:underline">
+                <Link href={`/documents/${doc.id}`} className="font-medium text-ink hover:underline">
                   {doc.title}
                 </Link>
-                <div className="text-slate-500">
+                <div className="text-xs text-muted">
                   {TYPE_LABEL[doc.document_type] ?? doc.document_type} · {formatSize(doc.size_bytes)}
                   {doc.created_at && ` · ${new Date(doc.created_at).toLocaleDateString()}`}
                 </div>
               </div>
               <DocumentStatusBadge status={doc.status} />
-            </li>
+            </Card>
           ))}
-        </ul>
+        </div>
       </section>
     </div>
   );

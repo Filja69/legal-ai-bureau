@@ -3,6 +3,7 @@
 import axios from "axios";
 import { useState } from "react";
 import { searchDebug, type SearchDebugResult } from "@/api/knowledge";
+import { Button, Card, CardHeader, Notice, PageHeader } from "@/components/ui";
 import { KnowledgeNav } from "./KnowledgeNav";
 
 export function KnowledgeSearchDebugView() {
@@ -30,72 +31,78 @@ export function KnowledgeSearchDebugView() {
   }
 
   return (
-    <div className="mx-auto max-w-4xl p-8">
-      <h1 className="text-2xl font-semibold">Knowledge Base</h1>
-      <div className="mt-4">
+    <div className="mx-auto max-w-5xl p-4 sm:p-8">
+      <PageHeader title="Knowledge Base" />
+      <div className="mb-4">
         <KnowledgeNav />
       </div>
 
-      <p className="mt-4 text-xs text-slate-500">
+      <p className="mb-4 text-xs text-muted">
         Retrieval diagnostics only — shows which candidates keyword/vector search found, fusion scores, and timings.
         Never exposes LLM chain-of-thought (this endpoint doesn&apos;t call an LLM).
       </p>
 
-      <div className="mt-4 flex gap-2">
-        <input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Debug query"
-          className="w-full rounded border border-slate-700 bg-slate-900 p-2 text-sm"
-        />
-        <button
-          onClick={handleSearch}
-          disabled={loading || !query.trim()}
-          className="rounded bg-slate-700 px-4 py-2 text-sm font-medium hover:bg-slate-600 disabled:opacity-50"
-        >
-          {loading ? "Running…" : "Run"}
-        </button>
-      </div>
-      {error && <p className="mt-2 text-sm text-red-400">{error}</p>}
+      <Card className="mb-6">
+        <div className="flex gap-2">
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Debug query"
+            className="w-full rounded-lg border border-line bg-white p-2.5 text-sm text-ink"
+          />
+          <Button variant="primary" onClick={handleSearch} disabled={loading || !query.trim()}>
+            {loading ? "Running…" : "Run"}
+          </Button>
+        </div>
+        {error && (
+          <div className="mt-2">
+            <Notice tone="danger">{error}</Notice>
+          </div>
+        )}
+      </Card>
 
       {result && (
-        <div className="mt-6 space-y-4 text-sm">
-          <div className="rounded border border-slate-800 p-3">
-            <div className="text-xs text-slate-500">Embedding</div>
-            <div className="text-slate-300">
-              {result.embedding.provider}/{result.embedding.model} · namespace {result.embedding.namespace}
-            </div>
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <Card>
+              <div className="text-xs text-muted">Embedding</div>
+              <div className="mt-1 text-sm text-ink">
+                {result.embedding.provider}/{result.embedding.model} · namespace {result.embedding.namespace}
+              </div>
+            </Card>
+            <Card>
+              <div className="text-xs text-muted">Latency (ms)</div>
+              <div className="mt-1 text-sm text-ink">
+                {Object.entries(result.latency_ms).map(([k, v]) => `${k}=${v}`).join(", ")}
+              </div>
+            </Card>
           </div>
-          <div className="rounded border border-slate-800 p-3">
-            <div className="text-xs text-slate-500">Latency (ms)</div>
-            <div className="text-slate-300">
-              {Object.entries(result.latency_ms).map(([k, v]) => `${k}=${v}`).join(", ")}
-            </div>
-          </div>
-          <div>
-            <h2 className="font-medium text-slate-200">Hybrid results ({result.fusion.candidate_count} candidates fused)</h2>
-            <ul className="mt-2 space-y-1">
+          <Card>
+            <CardHeader title={`Hybrid results (${result.fusion.candidate_count} candidates fused)`} />
+            <ul className="space-y-1.5">
               {result.hybrid_results.map((r, idx) => (
-                <li key={idx} className="rounded border border-slate-800 p-2">
+                <li key={idx} className="rounded-lg border border-line p-2.5">
                   <div className="flex justify-between">
-                    <span className="text-slate-300">{r.title}</span>
-                    <span className="text-xs text-slate-500">{r.score.toFixed(3)} · {r.retrieval_mode}</span>
+                    <span className="text-sm text-ink">{r.title}</span>
+                    <span className="text-xs text-muted">
+                      {r.score.toFixed(3)} · {r.retrieval_mode}
+                    </span>
                   </div>
                 </li>
               ))}
             </ul>
-          </div>
+          </Card>
           {result.citation_validation.length > 0 && (
-            <div>
-              <h2 className="font-medium text-slate-200">Citation validation</h2>
-              <ul className="mt-2 space-y-1">
+            <Card>
+              <CardHeader title="Citation validation" />
+              <ul className="space-y-1.5 text-sm text-slate-600">
                 {result.citation_validation.map((c, idx) => (
-                  <li key={idx} className="text-slate-400">
+                  <li key={idx}>
                     {c.law_short_name} ст. {c.article_number} — {c.status}
                   </li>
                 ))}
               </ul>
-            </div>
+            </Card>
           )}
         </div>
       )}

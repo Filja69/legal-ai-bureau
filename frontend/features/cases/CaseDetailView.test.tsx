@@ -123,7 +123,8 @@ describe("CaseDetailView", () => {
     expect(screen.getByText(/The payer itself referenced a specific loan agreement/)).toBeInTheDocument();
     expect(screen.getByText(/4000000\.00.*\(2 платеж\(ей\)\)/)).toBeInTheDocument();
     expect(screen.getByText(/Подтверждённый подписанный экземпляр договора не обнаружен/)).toBeInTheDocument();
-    expect(screen.getByText(/Поднять переписку сторон/)).toBeInTheDocument();
+    // Appears twice by design now: the "Главный вывод" summary and the ranked action-plan list.
+    expect(screen.getAllByText(/Поднять переписку сторон/).length).toBeGreaterThan(0);
     expect(screen.getByText(/Правовая квалификация пока ограничена/)).toBeInTheDocument();
   });
 
@@ -158,11 +159,16 @@ describe("CaseDetailView", () => {
     render(<CaseDetailView caseId="case-1" />, { wrapper });
     await waitFor(() => expect(screen.getByText("Master Case Report — 30-second Case Position")).toBeInTheDocument());
 
-    expect(screen.getByText("4400000.00")).toBeInTheDocument();
-    expect(screen.getByText(/Internal tension in claimant's pleading/)).toBeInTheDocument();
+    // Appears twice by design now: the hero KPI tile and the money-flow card total.
+    expect(screen.getAllByText("4400000.00").length).toBeGreaterThan(0);
+    // Appears twice by design now: the hero description and the "strongest argument" insight tile.
+    expect(screen.getAllByText(/Internal tension in claimant's pleading/).length).toBeGreaterThan(0);
     expect(screen.getByText(/Obtain correspondence around the transfer dates/)).toBeInTheDocument();
-    expect(screen.getByText(/asserts both 'payment_by_mistake'/)).toBeInTheDocument();
-    expect(screen.getByText(/Caveat: A tension worth investigating/)).toBeInTheDocument();
+    // Appears twice by design: once in the prominent Critical/High findings list
+    // (it's HIGH strength) and again in the dedicated Internal Contradictions section
+    // (it's a claim_contradiction) — the same finding surfaced in two purposeful groupings.
+    expect(screen.getAllByText(/asserts both 'payment_by_mistake'/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/A tension worth investigating/).length).toBeGreaterThan(0);
   });
 
   it("shows the party relationships block only when findings exist, with timing and open questions", async () => {

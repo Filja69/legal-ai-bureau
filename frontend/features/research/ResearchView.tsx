@@ -8,6 +8,7 @@ import { runResearch } from "@/api/legal";
 import { listResearchReports } from "@/api/research";
 import { useAuth } from "@/hooks/useAuth";
 import type { LegalResearchResponse } from "@/types/legal";
+import { Button, Card, PageHeader } from "@/components/ui";
 import { ResearchResult } from "./ResearchResult";
 
 export function ResearchView() {
@@ -50,45 +51,44 @@ export function ResearchView() {
   }
 
   if (!workspaceId) {
-    return <div className="p-8 text-sm text-slate-500">Select a workspace to run research.</div>;
+    return <div className="p-8 text-sm text-muted">Select a workspace to run research.</div>;
   }
 
   return (
-    <div className="mx-auto grid max-w-6xl grid-cols-1 gap-8 p-8 lg:grid-cols-[280px_1fr]">
+    <div className="mx-auto grid max-w-6xl grid-cols-1 gap-6 p-4 sm:p-8 lg:grid-cols-[280px_1fr]">
       <aside>
-        <h2 className="text-sm font-semibold text-slate-300">Past Research</h2>
-        {!historyQuery.data && <p className="mt-2 text-sm text-slate-500">Loading…</p>}
-        {historyQuery.data?.items.length === 0 && <p className="mt-2 text-sm text-slate-500">No research yet.</p>}
-        <ul className="mt-2 space-y-2">
+        <h2 className="mb-3 text-sm font-semibold text-ink">Past Research</h2>
+        {!historyQuery.data && <p className="text-sm text-muted">Loading…</p>}
+        {historyQuery.data?.items.length === 0 && <p className="text-sm text-muted">No research yet.</p>}
+        <div className="space-y-2">
           {historyQuery.data?.items.map((r) => (
-            <li key={r.id}>
-              <Link href={`/research/${r.id}`} className="block rounded border border-slate-800 p-2 text-xs hover:border-slate-600">
-                <div className="line-clamp-2 text-slate-300">{r.question}</div>
-                <div className="mt-1 text-slate-500">
+            <Link key={r.id} href={`/research/${r.id}`}>
+              <Card className="p-3 transition-shadow hover:shadow-panel">
+                <div className="line-clamp-2 text-xs font-medium text-ink">{r.question}</div>
+                <div className="mt-1 text-xs text-muted">
                   {r.confidence} confidence · {new Date(r.created_at).toLocaleDateString()}
                 </div>
-              </Link>
-            </li>
+              </Card>
+            </Link>
           ))}
-        </ul>
+        </div>
       </aside>
 
       <div>
-        <h1 className="text-2xl font-semibold">Legal Research</h1>
-        <p className="mt-1 text-sm text-slate-400">
-          Multi-stage Legal Research Engine — fact extraction, issue identification, retrieval, IRAC
-          reasoning, counterarguments, conflict detection, independent review.
-        </p>
+        <PageHeader
+          title="Legal Research"
+          description="Multi-stage Legal Research Engine — fact extraction, issue identification, retrieval, IRAC reasoning, counterarguments, conflict detection, independent review."
+        />
 
-        <div className="mt-6 space-y-3">
+        <Card className="space-y-3">
           <textarea
             value={question}
             onChange={(e) => setQuestion(e.target.value)}
             placeholder="Describe your legal question"
             rows={4}
-            className="w-full rounded border border-slate-700 bg-slate-900 p-3 text-sm"
+            className="w-full rounded-lg border border-line bg-white p-3 text-sm text-ink placeholder:text-slate-400"
           />
-          <div className="flex items-center gap-4 text-sm text-slate-400">
+          <div className="flex flex-wrap items-center gap-4 text-sm text-muted">
             <span>Jurisdiction: Russia</span>
             <label className="flex items-center gap-2">
               Date:
@@ -96,23 +96,19 @@ export function ResearchView() {
                 type="date"
                 value={effectiveAt}
                 onChange={(e) => setEffectiveAt(e.target.value)}
-                className="rounded border border-slate-700 bg-slate-900 px-2 py-1 text-slate-200"
+                className="rounded-lg border border-line bg-white px-2 py-1 text-ink"
               />
             </label>
           </div>
-          <button
-            onClick={handleStart}
-            disabled={loading || !question.trim()}
-            className="rounded bg-slate-700 px-4 py-2 text-sm font-medium hover:bg-slate-600 disabled:opacity-50"
-          >
+          <Button variant="primary" onClick={handleStart} disabled={loading || !question.trim()}>
             {loading ? "Researching..." : "Start Research"}
-          </button>
-        </div>
+          </Button>
+        </Card>
 
-        {error && <p className="mt-6 text-sm text-red-400">{error}</p>}
+        {error && <p className="mt-4 text-sm text-danger">{error}</p>}
 
         {response && (
-          <div className="mt-10 border-t border-slate-800 pt-8">
+          <div className="mt-8">
             <ResearchResult status={response.status} result={response.result} trace={response.trace} />
           </div>
         )}

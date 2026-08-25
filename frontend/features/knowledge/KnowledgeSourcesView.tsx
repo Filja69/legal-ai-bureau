@@ -4,6 +4,7 @@ import axios from "axios";
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { listKnowledgeSources, syncKnowledgeSource } from "@/api/knowledge";
+import { Badge, Card, Notice, PageHeader } from "@/components/ui";
 import { KnowledgeNav } from "./KnowledgeNav";
 
 export function KnowledgeSourcesView() {
@@ -21,7 +22,7 @@ export function KnowledgeSourcesView() {
       await syncKnowledgeSource(sourceId);
       await queryClient.invalidateQueries({ queryKey: ["knowledge", "sources"] });
     } catch (err) {
-      const message = axios.isAxiosError(err) ? err.response?.data?.detail ?? "Sync failed." : "Sync failed.";
+      const message = axios.isAxiosError(err) ? (err.response?.data?.detail ?? "Sync failed.") : "Sync failed.";
       setSyncError(message);
     } finally {
       setSyncingId(null);
@@ -29,44 +30,46 @@ export function KnowledgeSourcesView() {
   }
 
   return (
-    <div className="mx-auto max-w-4xl p-8">
-      <h1 className="text-2xl font-semibold">Knowledge Base</h1>
-      <div className="mt-4">
+    <div className="mx-auto max-w-5xl p-4 sm:p-8">
+      <PageHeader title="Knowledge Base" />
+      <div className="mb-6">
         <KnowledgeNav />
       </div>
 
-      <div className="mt-6">
-        {sourcesQuery.isLoading && <p className="text-sm text-slate-500">Loading…</p>}
-        {isForbidden && <p className="text-sm text-red-400">Admin or Owner role required to view sources.</p>}
-        {sourcesQuery.isError && !isForbidden && <p className="text-sm text-red-400">Could not load sources.</p>}
-        {sourcesQuery.data?.length === 0 && <p className="text-sm text-slate-500">No sources configured.</p>}
-        {syncError && <p className="mb-3 text-sm text-red-400">{syncError}</p>}
+      {sourcesQuery.isLoading && <p className="text-sm text-muted">Loading…</p>}
+      {isForbidden && <Notice tone="danger">Admin or Owner role required to view sources.</Notice>}
+      {sourcesQuery.isError && !isForbidden && <Notice tone="danger">Could not load sources.</Notice>}
+      {sourcesQuery.data?.length === 0 && <p className="text-sm text-muted">No sources configured.</p>}
+      {syncError && (
+        <div className="mb-3">
+          <Notice tone="danger">{syncError}</Notice>
+        </div>
+      )}
 
-        <ul className="space-y-2">
-          {sourcesQuery.data?.map((s) => (
-            <li key={s.id} className="rounded border border-slate-800 p-3 text-sm">
-              <div className="flex items-center justify-between">
-                <div>
-                  <span className="font-medium text-slate-200">{s.name}</span>
-                  {s.is_mock && <span className="ml-2 rounded bg-amber-900 px-1.5 py-0.5 text-[10px] text-amber-300">MOCK</span>}
-                  {s.is_official && <span className="ml-2 rounded bg-emerald-900 px-1.5 py-0.5 text-[10px] text-emerald-300">OFFICIAL</span>}
-                </div>
-                <button
-                  onClick={() => handleSync(s.id)}
-                  disabled={syncingId === s.id}
-                  className="rounded border border-slate-700 px-2 py-1 text-xs hover:bg-slate-800 disabled:opacity-50"
-                >
-                  {syncingId === s.id ? "Syncing…" : "Sync"}
-                </button>
+      <div className="space-y-2.5">
+        {sourcesQuery.data?.map((s) => (
+          <Card key={s.id}>
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <span className="font-medium text-ink">{s.name}</span>
+                {s.is_mock && <Badge tone="amber">MOCK</Badge>}
+                {s.is_official && <Badge tone="green">OFFICIAL</Badge>}
               </div>
-              <div className="mt-1 text-slate-500">
-                {s.type} · {s.status}
-                {s.last_successful_sync_at && ` · last synced ${s.last_successful_sync_at}`}
-              </div>
-              {s.last_error && <div className="mt-1 text-red-400">{s.last_error}</div>}
-            </li>
-          ))}
-        </ul>
+              <button
+                onClick={() => handleSync(s.id)}
+                disabled={syncingId === s.id}
+                className="rounded-lg border border-line px-2.5 py-1 text-xs font-medium text-ink hover:bg-panel-muted disabled:opacity-50"
+              >
+                {syncingId === s.id ? "Syncing…" : "Sync"}
+              </button>
+            </div>
+            <div className="mt-1.5 text-xs text-muted">
+              {s.type} · {s.status}
+              {s.last_successful_sync_at && ` · last synced ${s.last_successful_sync_at}`}
+            </div>
+            {s.last_error && <div className="mt-1 text-xs text-danger">{s.last_error}</div>}
+          </Card>
+        ))}
       </div>
     </div>
   );

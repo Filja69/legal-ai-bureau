@@ -9,6 +9,7 @@ import { listContracts } from "@/api/contracts";
 import { listResearchReports } from "@/api/research";
 import { useAuth } from "@/hooks/useAuth";
 import { useHealthCheck } from "@/hooks/useHealthCheck";
+import { Badge, Card, CardHeader } from "@/components/ui";
 
 // UX iteration — "Legal AI Assistant" home. First-10-seconds redesign
 // driven by real lawyer feedback: the old Dashboard opened straight onto
@@ -87,20 +88,20 @@ export function DashboardView() {
 
   if (!workspaceId) {
     return (
-      <div className="flex min-h-full items-center justify-center bg-white p-8 text-sm text-slate-500">
+      <div className="flex min-h-full items-center justify-center bg-canvas p-8 text-sm text-muted">
         {user ? "Рабочее пространство не выбрано." : "Загрузка ваших рабочих пространств..."}
       </div>
     );
   }
 
   return (
-    <div className="min-h-full bg-gradient-to-b from-white to-slate-50">
+    <div className="min-h-full bg-canvas">
       {/* --- Assistant composer: the primary, first-10-seconds surface --- */}
       <section className="mx-auto max-w-3xl px-4 pb-10 pt-12 text-center sm:px-6 sm:pt-16">
-        <h1 className="text-3xl font-semibold tracking-tight text-slate-900 sm:text-4xl">Чем помочь?</h1>
-        <p className="mt-3 text-base text-slate-500 sm:text-lg">Опишите юридическую задачу или приложите документы</p>
+        <h1 className="text-3xl font-semibold tracking-tight text-ink sm:text-4xl">Чем помочь?</h1>
+        <p className="mt-3 text-base text-muted sm:text-lg">Опишите юридическую задачу или приложите документы</p>
 
-        <div className="mt-8 rounded-2xl border border-slate-200 bg-white p-3 text-left shadow-sm sm:p-4">
+        <div className="mt-8 rounded-2xl border border-line bg-white p-3 text-left shadow-panel sm:p-4">
           <textarea
             value={task}
             onChange={(e) => setTask(e.target.value)}
@@ -112,13 +113,13 @@ export function DashboardView() {
             }}
             placeholder="Например: проверь договор поставки, найди риски и предложи правки"
             rows={3}
-            className="w-full resize-none border-0 bg-transparent p-2 text-base text-slate-900 placeholder:text-slate-400 focus:outline-none"
+            className="w-full resize-none border-0 bg-transparent p-2 text-base text-ink placeholder:text-slate-400 focus:outline-none"
           />
-          <div className="flex items-center justify-between gap-2 border-t border-slate-100 px-2 pt-3">
+          <div className="flex items-center justify-between gap-2 border-t border-line px-2 pt-3">
             <button
               type="button"
               onClick={handleAttach}
-              className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+              className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium text-muted hover:bg-panel-muted hover:text-ink"
             >
               <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
                 <path
@@ -135,7 +136,7 @@ export function DashboardView() {
               type="button"
               onClick={handleSend}
               disabled={!task.trim()}
-              className="rounded-lg bg-indigo-600 px-5 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-40"
+              className="rounded-lg bg-brand px-5 py-2 text-sm font-semibold text-white shadow-sm hover:bg-brand-strong disabled:cursor-not-allowed disabled:opacity-40"
             >
               Отправить
             </button>
@@ -148,7 +149,7 @@ export function DashboardView() {
               key={action.label}
               href={action.href}
               title={action.description}
-              className="rounded-full border border-slate-200 bg-white px-3.5 py-1.5 text-sm text-slate-600 shadow-sm hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700"
+              className="rounded-full border border-line bg-white px-3.5 py-1.5 text-sm text-slate-600 shadow-sm hover:border-blue-200 hover:bg-brand-soft hover:text-brand-strong"
             >
               {action.label}
             </Link>
@@ -158,19 +159,19 @@ export function DashboardView() {
 
       {/* --- Existing operational data — same real signals, just secondary now --- */}
       <section className="mx-auto max-w-5xl px-4 pb-16 sm:px-6">
-        <div className="flex items-center justify-between border-t border-slate-200 pt-6">
-          <h2 className="text-sm font-semibold text-slate-400">Что у меня уже есть</h2>
-          <span className="text-xs text-slate-400">
+        <div className="flex items-center justify-between border-t border-line pt-6">
+          <h2 className="text-sm font-semibold text-muted">Что у меня уже есть</h2>
+          <span className="text-xs text-muted">
             Backend:{" "}
-            <span className={healthStatus === "ok" ? "text-emerald-600" : "text-amber-600"}>
+            <span className={healthStatus === "ok" ? "text-success" : "text-warning"}>
               {healthStatus === "ok" ? "работает" : healthStatus === "checking" ? "проверка…" : "недоступен"}
             </span>
           </span>
         </div>
 
-        <div className="mt-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-          <h3 className="text-sm font-semibold text-slate-700">Требует внимания</h3>
-          <ul className="mt-2 space-y-1 text-sm text-slate-600">
+        <Card className="mt-4">
+          <CardHeader title="Требует внимания" />
+          <ul className="space-y-1 text-sm text-slate-600">
             {unanalyzedContracts.length > 0 && (
               <li>
                 <Link href="/contracts" className="hover:underline">
@@ -187,83 +188,85 @@ export function DashboardView() {
             )}
             {escalatedResearch.length > 0 && (
               <li>
-                <Link href="/research" className="text-amber-600 hover:underline">
+                <Link href="/research" className="text-warning hover:underline">
                   {escalatedResearch.length} исследование(й) требуют проверки юристом
                 </Link>
               </li>
             )}
             {unanalyzedContracts.length === 0 && lowConfidenceResearch.length === 0 && escalatedResearch.length === 0 && (
-              <li className="text-slate-400">Сейчас ничего не требует внимания.</li>
+              <li className="text-muted">Сейчас ничего не требует внимания.</li>
             )}
           </ul>
-        </div>
+        </Card>
 
-        <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-            <h3 className="text-sm font-semibold text-slate-700">Активные дела</h3>
-            {!casesQuery.data && <p className="mt-2 text-sm text-slate-400">Загрузка…</p>}
-            {casesQuery.data?.length === 0 && <p className="mt-2 text-sm text-slate-400">Пока нет дел.</p>}
-            <ul className="mt-2 space-y-2">
+        <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <Card>
+            <CardHeader title="Активные дела" />
+            {!casesQuery.data && <p className="text-sm text-muted">Загрузка…</p>}
+            {casesQuery.data?.length === 0 && <p className="text-sm text-muted">Пока нет дел.</p>}
+            <ul className="space-y-2">
               {casesQuery.data?.slice(0, 5).map((c) => (
-                <li key={c.id} className="rounded-lg border border-slate-100 p-2.5 text-sm">
-                  <Link href={`/cases/${c.id}`} className="font-medium text-slate-800 hover:underline">
+                <li key={c.id} className="rounded-lg border border-line p-2.5 text-sm">
+                  <Link href={`/cases/${c.id}`} className="font-medium text-ink hover:underline">
                     {c.title}
                   </Link>
-                  <div className="text-slate-400">{c.status}</div>
+                  <div className="text-muted">{c.status}</div>
                 </li>
               ))}
             </ul>
             {casesQuery.data && casesQuery.data.length > 0 && (
-              <Link href="/cases" className="mt-3 inline-block text-xs text-slate-400 hover:underline">
+              <Link href="/cases" className="mt-3 inline-block text-xs text-muted hover:underline">
                 Все дела →
               </Link>
             )}
-          </section>
+          </Card>
 
-          <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-            <h3 className="text-sm font-semibold text-slate-700">Договоры</h3>
-            {!contractsQuery.data && <p className="mt-2 text-sm text-slate-400">Загрузка…</p>}
-            {contractsQuery.data?.length === 0 && <p className="mt-2 text-sm text-slate-400">Пока нет договоров.</p>}
-            <ul className="mt-2 space-y-2">
+          <Card>
+            <CardHeader title="Договоры" />
+            {!contractsQuery.data && <p className="text-sm text-muted">Загрузка…</p>}
+            {contractsQuery.data?.length === 0 && <p className="text-sm text-muted">Пока нет договоров.</p>}
+            <ul className="space-y-2">
               {contractsQuery.data?.slice(0, 5).map((c) => (
-                <li key={c.id} className="rounded-lg border border-slate-100 p-2.5 text-sm">
-                  <Link href={`/contracts/${c.id}`} className="font-medium text-slate-800 hover:underline">
+                <li key={c.id} className="rounded-lg border border-line p-2.5 text-sm">
+                  <Link href={`/contracts/${c.id}`} className="font-medium text-ink hover:underline">
                     {c.title}
                   </Link>
-                  <div className="text-slate-400">
-                    {c.contract_type} · {c.status}
-                    {c.is_mock && <span className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] text-amber-700">MOCK</span>}
+                  <div className="flex items-center gap-2 text-muted">
+                    <span>
+                      {c.contract_type} · {c.status}
+                    </span>
+                    {c.is_mock && <Badge tone="amber">MOCK</Badge>}
                   </div>
                 </li>
               ))}
             </ul>
             {contractsQuery.data && contractsQuery.data.length > 0 && (
-              <Link href="/contracts" className="mt-3 inline-block text-xs text-slate-400 hover:underline">
+              <Link href="/contracts" className="mt-3 inline-block text-xs text-muted hover:underline">
                 Все договоры →
               </Link>
             )}
-          </section>
+          </Card>
 
-          <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-            <h3 className="text-sm font-semibold text-slate-700">Последние исследования</h3>
-            {!researchQuery.data && <p className="mt-2 text-sm text-slate-400">Загрузка…</p>}
-            {researchQuery.data?.items.length === 0 && <p className="mt-2 text-sm text-slate-400">Пока нет исследований.</p>}
-            <ul className="mt-2 space-y-2">
+          <Card>
+            <CardHeader title="Последние исследования" />
+            {!researchQuery.data && <p className="text-sm text-muted">Загрузка…</p>}
+            {researchQuery.data?.items.length === 0 && <p className="text-sm text-muted">Пока нет исследований.</p>}
+            <ul className="space-y-2">
               {researchQuery.data?.items.slice(0, 5).map((r) => (
-                <li key={r.id} className="rounded-lg border border-slate-100 p-2.5 text-sm">
-                  <Link href={`/research/${r.id}`} className="line-clamp-1 font-medium text-slate-800 hover:underline">
+                <li key={r.id} className="rounded-lg border border-line p-2.5 text-sm">
+                  <Link href={`/research/${r.id}`} className="line-clamp-1 font-medium text-ink hover:underline">
                     {r.question}
                   </Link>
-                  <div className="text-slate-400">{r.confidence} confidence</div>
+                  <div className="text-muted">{r.confidence} confidence</div>
                 </li>
               ))}
             </ul>
             {researchQuery.data && researchQuery.data.items.length > 0 && (
-              <Link href="/research" className="mt-3 inline-block text-xs text-slate-400 hover:underline">
+              <Link href="/research" className="mt-3 inline-block text-xs text-muted hover:underline">
                 Все исследования →
               </Link>
             )}
-          </section>
+          </Card>
         </div>
       </section>
     </div>

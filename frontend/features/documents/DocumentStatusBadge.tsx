@@ -5,12 +5,12 @@ import type { DocumentStatus } from "@/types/document";
 // VERIFIED/MOCK/UNVERIFIED semantics. Document processing status is a
 // different kind of fact and must not borrow that vocabulary.
 const STYLES: Record<DocumentStatus, string> = {
-  uploaded: "bg-slate-800 text-slate-300 border border-slate-700",
-  processing: "bg-indigo-950 text-indigo-300 border border-indigo-900",
-  ready: "bg-emerald-950 text-emerald-300 border border-emerald-900",
-  failed: "bg-red-950 text-red-300 border border-red-900",
-  ocr_required: "bg-amber-950 text-amber-300 border border-amber-900",
-  unsupported: "bg-slate-800 text-slate-400 border border-slate-700 border-dashed",
+  uploaded: "bg-slate-100 text-slate-600 border border-slate-200",
+  processing: "bg-brand-soft text-brand-strong border border-blue-200",
+  ready: "bg-success-soft text-success border border-emerald-200",
+  failed: "bg-danger-soft text-danger border border-red-200",
+  ocr_required: "bg-warning-soft text-warning border border-amber-200",
+  unsupported: "bg-slate-100 text-slate-400 border border-dashed border-slate-300",
 };
 
 const LABELS: Record<DocumentStatus, string> = {
@@ -24,7 +24,7 @@ const LABELS: Record<DocumentStatus, string> = {
 
 export function DocumentStatusBadge({ status }: { status: DocumentStatus }) {
   return (
-    <span className={`inline-block rounded px-1.5 py-0.5 text-[10px] font-semibold tracking-wide ${STYLES[status]}`}>
+    <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-[10px] font-bold tracking-wide ${STYLES[status]}`}>
       {LABELS[status]}
     </span>
   );

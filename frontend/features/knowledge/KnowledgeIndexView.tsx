@@ -4,6 +4,7 @@ import axios from "axios";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { listKnowledgeDocuments, reindexKnowledgeBase, type ReindexReport } from "@/api/knowledge";
+import { Badge, Button, Card, CardHeader, Notice, PageHeader } from "@/components/ui";
 import { KnowledgeNav } from "./KnowledgeNav";
 
 export function KnowledgeIndexView() {
@@ -32,59 +33,55 @@ export function KnowledgeIndexView() {
   }
 
   return (
-    <div className="mx-auto max-w-4xl p-8">
-      <h1 className="text-2xl font-semibold">Knowledge Base</h1>
-      <div className="mt-4">
+    <div className="mx-auto max-w-5xl p-4 sm:p-8">
+      <PageHeader title="Knowledge Base" />
+      <div className="mb-6">
         <KnowledgeNav />
       </div>
 
-      <div className="mt-6 rounded border border-slate-800 p-4">
-        <h2 className="text-sm font-semibold text-slate-300">Reindex (dry run)</h2>
-        <p className="mt-1 text-xs text-slate-500">
-          Preview only — never writes. A real reindex must be run from the backend/ops tooling, not this UI, to avoid
-          accidental cost/blast radius from the browser.
-        </p>
-        <button
-          onClick={handleDryRun}
-          disabled={reindexing}
-          className="mt-3 rounded border border-slate-700 px-3 py-1.5 text-xs hover:bg-slate-800 disabled:opacity-50"
-        >
+      <Card className="mb-6">
+        <CardHeader title="Reindex (dry run)" description="Preview only — never writes. A real reindex must be run from the backend/ops tooling, not this UI, to avoid accidental cost/blast radius from the browser." />
+        <Button onClick={handleDryRun} disabled={reindexing}>
           {reindexing ? "Running…" : "Run dry-run preview"}
-        </button>
-        {reindexError && <p className="mt-2 text-sm text-red-400">{reindexError}</p>}
+        </Button>
+        {reindexError && (
+          <div className="mt-2">
+            <Notice tone="danger">{reindexError}</Notice>
+          </div>
+        )}
         {reindexReport && (
-          <dl className="mt-3 grid grid-cols-2 gap-1 text-xs text-slate-400">
+          <dl className="mt-3 grid grid-cols-2 gap-1.5 text-xs text-muted">
             <dt>Target namespace</dt>
-            <dd className="text-slate-200">{reindexReport.target_namespace}</dd>
+            <dd className="text-ink">{reindexReport.target_namespace}</dd>
             <dt>Would reindex</dt>
-            <dd className="text-slate-200">{reindexReport.would_reindex}</dd>
+            <dd className="text-ink">{reindexReport.would_reindex}</dd>
             <dt>Already current</dt>
-            <dd className="text-slate-200">{reindexReport.already_current}</dd>
+            <dd className="text-ink">{reindexReport.already_current}</dd>
             <dt>Ready to activate</dt>
-            <dd className="text-slate-200">{reindexReport.ready_to_activate ? "yes" : "no"}</dd>
+            <dd className="text-ink">{reindexReport.ready_to_activate ? "yes" : "no"}</dd>
           </dl>
         )}
-      </div>
+      </Card>
 
-      <div className="mt-6">
-        <h2 className="text-sm font-semibold text-slate-300">Indexed Chunks</h2>
-        {documentsQuery.isLoading && <p className="mt-2 text-sm text-slate-500">Loading…</p>}
-        {isForbidden && <p className="mt-2 text-sm text-red-400">Admin or Owner role required.</p>}
-        {documentsQuery.isError && !isForbidden && <p className="mt-2 text-sm text-red-400">Could not load index.</p>}
-        <ul className="mt-2 space-y-1 text-sm">
+      <Card>
+        <CardHeader title="Indexed Chunks" />
+        {documentsQuery.isLoading && <p className="text-sm text-muted">Loading…</p>}
+        {isForbidden && <Notice tone="danger">Admin or Owner role required.</Notice>}
+        {documentsQuery.isError && !isForbidden && <Notice tone="danger">Could not load index.</Notice>}
+        <ul className="space-y-1.5 text-sm">
           {documentsQuery.data?.map((d) => (
-            <li key={d.chunk_id} className="flex items-center justify-between rounded border border-slate-800 px-3 py-2">
-              <span className="text-slate-300">
+            <li key={d.chunk_id} className="flex items-center justify-between rounded-lg border border-line px-3 py-2">
+              <span className="text-slate-700">
                 {d.document_type} {d.article_number ? `· art. ${d.article_number}` : ""}
               </span>
-              <span className="text-xs text-slate-500">
+              <span className="flex items-center gap-2 text-xs text-muted">
                 {d.embedding_model}
-                {d.is_mock && <span className="ml-2 rounded bg-amber-900 px-1.5 py-0.5 text-amber-300">MOCK</span>}
+                {d.is_mock && <Badge tone="amber">MOCK</Badge>}
               </span>
             </li>
           ))}
         </ul>
-      </div>
+      </Card>
     </div>
   );
 }

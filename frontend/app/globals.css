@@ -1,3 +1,18 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Consistent focus state across every text input/select/textarea in the light
+   (Tailwind "canvas") surfaces — added once here instead of on every form
+   control individually, so new pages inherit it automatically. */
+.bg-canvas input,
+.bg-canvas select,
+.bg-canvas textarea {
+  outline: none;
+}
+.bg-canvas input:focus-visible,
+.bg-canvas select:focus-visible,
+.bg-canvas textarea:focus-visible {
+  border-color: #84adff;
+  box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.1);
+}

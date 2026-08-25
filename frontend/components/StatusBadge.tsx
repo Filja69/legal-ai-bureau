@@ -4,13 +4,13 @@
 // TEXT is always the real backend status word.
 
 const STYLES: Record<string, string> = {
-  verified: "bg-emerald-950 text-emerald-300 border border-emerald-900",
-  mock: "bg-amber-950 text-amber-300 border border-amber-900",
-  unverified: "bg-slate-800 text-slate-300 border border-slate-700",
-  broken: "bg-red-950 text-red-300 border border-red-900",
-  temporally_invalid: "bg-red-950 text-red-300 border border-red-900",
-  unsupported_critical: "bg-red-950 text-red-300 border border-red-900",
-  blocked: "bg-slate-800 text-slate-400 border border-slate-700 border-dashed",
+  verified: "bg-success-soft text-success border border-emerald-200",
+  mock: "bg-warning-soft text-warning border border-amber-200",
+  unverified: "bg-slate-100 text-slate-600 border border-slate-200",
+  broken: "bg-danger-soft text-danger border border-red-200",
+  temporally_invalid: "bg-danger-soft text-danger border border-red-200",
+  unsupported_critical: "bg-danger-soft text-danger border border-red-200",
+  blocked: "bg-slate-100 text-slate-500 border border-dashed border-slate-300",
 };
 
 const LABELS: Record<string, string> = {
@@ -25,10 +25,10 @@ const LABELS: Record<string, string> = {
 
 export function StatusBadge({ status, className = "" }: { status: string; className?: string }) {
   const key = status.toLowerCase();
-  const style = STYLES[key] ?? "bg-slate-800 text-slate-300 border border-slate-700";
+  const style = STYLES[key] ?? "bg-slate-100 text-slate-600 border border-slate-200";
   const label = LABELS[key] ?? status.toUpperCase();
   return (
-    <span className={`inline-block rounded px-1.5 py-0.5 text-[10px] font-semibold tracking-wide ${style} ${className}`}>
+    <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-[10px] font-bold tracking-wide ${style} ${className}`}>
       {label}
     </span>
   );

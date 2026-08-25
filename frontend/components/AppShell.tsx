@@ -14,11 +14,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <AuthGuard>
-      <div className="flex min-h-screen">
+      <div className="flex min-h-screen bg-canvas text-ink">
         <NavSidebar mobileOpen={mobileNavOpen} onMobileClose={() => setMobileNavOpen(false)} />
         <div className="flex min-w-0 flex-1 flex-col">
           <Header onMenuClick={() => setMobileNavOpen(true)} />
-          <main className="min-w-0 flex-1 overflow-auto">{children}</main>
+          <main className="min-w-0 flex-1 overflow-auto bg-canvas">{children}</main>
         </div>
       </div>
     </AuthGuard>

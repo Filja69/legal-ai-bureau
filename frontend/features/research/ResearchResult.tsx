@@ -1,18 +1,16 @@
 "use client";
 
 import type { LegalResearchResult, ResearchStatus, ResearchTrace } from "@/types/legal";
+import { Badge, Card, CardHeader, Notice } from "@/components/ui";
+import type { BadgeTone } from "@/components/ui";
 
-const CONFIDENCE_COLOR: Record<string, string> = {
-  high: "text-emerald-400",
-  medium: "text-amber-400",
-  low: "text-red-400",
-};
+const CONFIDENCE_TONE: Record<string, BadgeTone> = { high: "green", medium: "amber", low: "red" };
 
-const CLAIM_STATUS_LABEL: Record<string, { label: string; className: string }> = {
-  verified: { label: "Verified", className: "bg-emerald-900 text-emerald-300" },
-  mock: { label: "Mock", className: "bg-amber-900 text-amber-300" },
-  unverified: { label: "Unverified", className: "bg-slate-700 text-slate-300" },
-  unsupported_critical: { label: "Unsupported (critical)", className: "bg-red-900 text-red-300" },
+const CLAIM_STATUS_LABEL: Record<string, { label: string; tone: BadgeTone }> = {
+  verified: { label: "Verified", tone: "green" },
+  mock: { label: "Mock", tone: "amber" },
+  unverified: { label: "Unverified", tone: "gray" },
+  unsupported_critical: { label: "Unsupported (critical)", tone: "red" },
 };
 
 // Shared render of a Legal Research Engine result — used by both the
@@ -28,144 +26,144 @@ export function ResearchResult({
   trace?: ResearchTrace;
 }) {
   return (
-    <div className="space-y-8">
-      <section>
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg font-medium">Conclusion</h2>
-          <span className={`text-sm font-semibold uppercase ${CONFIDENCE_COLOR[result.confidence]}`}>
-            Confidence: {result.confidence}
-          </span>
+    <div className="space-y-5">
+      <Card>
+        <div className="flex items-center justify-between gap-2">
+          <h2 className="text-lg font-semibold text-ink">Conclusion</h2>
+          <Badge tone={CONFIDENCE_TONE[result.confidence] ?? "gray"}>Confidence: {result.confidence}</Badge>
         </div>
-        <p className="mt-2 text-sm text-slate-200">{result.executive_conclusion}</p>
-        {status !== "completed" && <p className="mt-2 text-sm text-amber-400">Status: {status}</p>}
+        <p className="mt-2 text-sm leading-relaxed text-slate-700">{result.executive_conclusion}</p>
+        {status !== "completed" && <p className="mt-2 text-sm text-warning">Status: {status}</p>}
         {result.escalate_to_human && (
-          <p className="mt-2 text-sm text-red-400">
-            Human legal review recommended: {result.escalation_reasons.join("; ")}
-          </p>
+          <div className="mt-3">
+            <Notice tone="danger">Human legal review recommended: {result.escalation_reasons.join("; ")}</Notice>
+          </div>
         )}
-      </section>
+      </Card>
 
       {result.issues.length > 0 && (
-        <section>
-          <h2 className="text-lg font-medium">Legal Issues</h2>
-          <ul className="mt-2 space-y-1 text-sm text-slate-300">
+        <Card>
+          <CardHeader title="Legal Issues" />
+          <ul className="space-y-1.5 text-sm text-slate-700">
             {result.issues.map((issue) => (
               <li key={issue.id}>
-                <span className="text-slate-500">[{issue.issue_type}]</span> {issue.title}
+                <span className="text-muted">[{issue.issue_type}]</span> {issue.title}
               </li>
             ))}
           </ul>
-        </section>
+        </Card>
       )}
 
       {result.analysis.length > 0 && (
-        <section>
-          <h2 className="text-lg font-medium">Analysis</h2>
-          <ul className="mt-2 space-y-2 text-sm text-slate-300">
+        <Card>
+          <CardHeader title="Analysis" />
+          <ul className="space-y-2 text-sm text-slate-700">
             {result.analysis.map((line, idx) => (
               <li key={idx}>{line}</li>
             ))}
           </ul>
-        </section>
+        </Card>
       )}
 
       {result.counterarguments.length > 0 && (
-        <section>
-          <h2 className="text-lg font-medium">Counterarguments</h2>
-          <ul className="mt-2 space-y-1 text-sm text-slate-300">
+        <Card>
+          <CardHeader title="Counterarguments" />
+          <ul className="space-y-1.5 text-sm text-slate-700">
             {result.counterarguments.map((c, idx) => (
               <li key={idx}>{c}</li>
             ))}
           </ul>
-        </section>
+        </Card>
       )}
 
       {result.conflicts.length > 0 && (
-        <section>
-          <h2 className="text-lg font-medium">Conflicting Practice</h2>
-          {result.conflicts.map((c, idx) => (
-            <div key={idx} className="mt-2 rounded border border-amber-900 bg-amber-950/30 p-3 text-sm">
-              <div className="font-medium text-amber-300">{c.conflict_type}</div>
-              <div className="mt-1 text-slate-300">Позиция A: {c.position_a}</div>
-              <div className="mt-1 text-slate-300">Позиция B: {c.position_b}</div>
-              {c.implication && <div className="mt-1 text-slate-400">{c.implication}</div>}
-            </div>
-          ))}
-        </section>
+        <Card>
+          <CardHeader title="Conflicting Practice" />
+          <div className="space-y-2.5">
+            {result.conflicts.map((c, idx) => (
+              <div key={idx} className="rounded-xl border border-amber-200 bg-warning-soft p-3.5 text-sm">
+                <div className="font-semibold text-warning">{c.conflict_type}</div>
+                <div className="mt-1 text-slate-700">Позиция A: {c.position_a}</div>
+                <div className="mt-1 text-slate-700">Позиция B: {c.position_b}</div>
+                {c.implication && <div className="mt-1 text-muted">{c.implication}</div>}
+              </div>
+            ))}
+          </div>
+        </Card>
       )}
 
       {result.risks.length > 0 && (
-        <section>
-          <h2 className="text-lg font-medium">Risks</h2>
-          <ul className="mt-2 space-y-1 text-sm text-slate-300">
+        <Card>
+          <CardHeader title="Risks" />
+          <ul className="space-y-1.5 text-sm text-slate-700">
             {result.risks.map((r, idx) => (
               <li key={idx}>{r}</li>
             ))}
           </ul>
-        </section>
+        </Card>
       )}
 
       {result.missing_facts.length > 0 && (
-        <section>
-          <h2 className="text-lg font-medium">Missing Facts</h2>
-          <ul className="mt-2 space-y-1 text-sm text-slate-300">
+        <Card>
+          <CardHeader title="Missing Facts" />
+          <ul className="space-y-1.5 text-sm text-slate-700">
             {result.missing_facts.map((m, idx) => (
               <li key={idx}>
-                <span className="text-slate-500">[{m.criticality}]</span> {m.question}
+                <span className="text-muted">[{m.criticality}]</span> {m.question}
               </li>
             ))}
           </ul>
-        </section>
+        </Card>
       )}
 
-      <section>
-        <h2 className="text-lg font-medium">Sources ({Math.round(result.citation_coverage * 100)}% citation coverage)</h2>
-        <ul className="mt-2 space-y-2">
+      <Card>
+        <CardHeader title={`Sources (${Math.round(result.citation_coverage * 100)}% citation coverage)`} />
+        <div className="space-y-2.5">
           {result.claims
             .filter((c) => c.claim_type === "rule")
             .map((claim, idx) => {
               const claimStatus = CLAIM_STATUS_LABEL[claim.verification_status] ?? CLAIM_STATUS_LABEL.unverified;
               return (
-                <li key={idx} className="rounded border border-slate-800 p-3 text-sm">
+                <div key={idx} className="rounded-xl border border-line p-3.5 text-sm">
                   <div className="flex items-center justify-between gap-2">
-                    <span className="font-medium text-slate-200">{claim.citations.join(", ") || "(unverified)"}</span>
-                    <span className={`rounded px-2 py-0.5 text-xs ${claimStatus.className}`}>{claimStatus.label}</span>
+                    <span className="font-medium text-ink">{claim.citations.join(", ") || "(unverified)"}</span>
+                    <Badge tone={claimStatus.tone}>{claimStatus.label}</Badge>
                   </div>
-                  <div className="mt-1 text-slate-400">{claim.claim}</div>
-                </li>
+                  <div className="mt-1 text-muted">{claim.claim}</div>
+                </div>
               );
             })}
-        </ul>
-      </section>
+        </div>
+      </Card>
 
       {result.recommended_actions.length > 0 && (
-        <section>
-          <h2 className="text-lg font-medium">Recommended Actions</h2>
-          <ul className="mt-2 space-y-1 text-sm text-slate-300">
+        <Card>
+          <CardHeader title="Recommended Actions" />
+          <ul className="space-y-1.5 text-sm text-slate-700">
             {result.recommended_actions.map((a, idx) => (
               <li key={idx}>{a}</li>
             ))}
           </ul>
-        </section>
+        </Card>
       )}
 
       {trace && (
-        <details className="rounded border border-slate-800 p-3 text-sm text-slate-400">
-          <summary className="cursor-pointer text-slate-300">
+        <details className="rounded-xl border border-line bg-panel-muted p-3.5 text-sm text-muted">
+          <summary className="cursor-pointer font-medium text-slate-700">
             Research details ({trace.retrieved_count} sources retrieved, {trace.llm_calls} reasoning steps)
           </summary>
           <div className="mt-3 space-y-2">
             <div>
-              <span className="text-slate-500">Queries: </span>
+              <span className="text-muted">Queries: </span>
               {trace.queries.join("; ")}
             </div>
             {trace.knowledge_snapshot && (
-              <div className="text-slate-500">
+              <div className="text-muted">
                 Knowledge base at time of research: {trace.knowledge_snapshot.total_chunks} chunks (
                 {trace.knowledge_snapshot.mock_chunks} mock)
               </div>
             )}
-            <div className="text-slate-500">
+            <div className="text-muted">
               Timing: {Object.entries(trace.performance_ms).map(([k, v]) => `${k}=${Math.round(v)}ms`).join(", ")}
             </div>
           </div>

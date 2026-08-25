@@ -13,13 +13,13 @@ const LINKS = [
 export function KnowledgeNav() {
   const pathname = usePathname();
   return (
-    <div className="flex gap-1 border-b border-slate-800 text-sm">
+    <div className="flex w-fit gap-1 overflow-x-auto rounded-xl border border-line bg-panel-muted p-1 text-sm">
       {LINKS.map((l) => (
         <Link
           key={l.href}
           href={l.href}
-          className={`px-3 py-2 ${
-            pathname === l.href ? "border-b-2 border-slate-200 text-slate-100" : "text-slate-500 hover:text-slate-300"
+          className={`shrink-0 rounded-lg px-3.5 py-1.5 font-medium transition-colors ${
+            pathname === l.href ? "bg-white text-ink shadow-sm" : "text-muted hover:text-ink"
           }`}
         >
           {l.label}

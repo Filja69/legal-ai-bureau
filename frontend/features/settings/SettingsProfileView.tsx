@@ -1,6 +1,7 @@
 "use client";
 
 import { useAuth } from "@/hooks/useAuth";
+import { Card, PageHeader } from "@/components/ui";
 import { SettingsNav } from "./SettingsNav";
 
 export function SettingsProfileView() {
@@ -8,30 +9,30 @@ export function SettingsProfileView() {
 
   return (
     <div className="mx-auto max-w-2xl p-4 sm:p-8">
-      <h1 className="text-2xl font-semibold">Настройки</h1>
-      <div className="mt-4">
+      <PageHeader title="Настройки" />
+      <div className="mb-6">
         <SettingsNav />
       </div>
 
-      <div className="mt-6">
-        {isLoadingUser && <p className="text-sm text-slate-500">Загрузка…</p>}
+      <Card>
+        {isLoadingUser && <p className="text-sm text-muted">Загрузка…</p>}
         {user && (
           <dl className="grid grid-cols-[140px_1fr] gap-y-3 text-sm">
-            <dt className="text-slate-500">Имя</dt>
-            <dd className="text-slate-200">{user.name ?? "—"}</dd>
-            <dt className="text-slate-500">Email</dt>
-            <dd className="text-slate-200">{user.email ?? "—"}</dd>
-            <dt className="text-slate-500">Режим входа</dt>
-            <dd className="text-slate-200">{user.is_dev_bypass ? "Dev-режим (вход не требуется)" : "Аутентифицирован"}</dd>
+            <dt className="text-muted">Имя</dt>
+            <dd className="text-ink">{user.name ?? "—"}</dd>
+            <dt className="text-muted">Email</dt>
+            <dd className="text-ink">{user.email ?? "—"}</dd>
+            <dt className="text-muted">Режим входа</dt>
+            <dd className="text-ink">{user.is_dev_bypass ? "Dev-режим (вход не требуется)" : "Аутентифицирован"}</dd>
           </dl>
         )}
         <button
           onClick={logout}
-          className="mt-6 rounded border border-slate-700 px-3 py-1.5 text-sm hover:bg-slate-800"
+          className="mt-6 rounded-lg border border-line px-3.5 py-2 text-sm font-semibold text-ink hover:bg-panel-muted"
         >
           Выйти
         </button>
-      </div>
+      </Card>
     </div>
   );
 }
