@@ -47,6 +47,19 @@ _INTEREST_PERIOD_PATTERN = re.compile(
     re.IGNORECASE,
 )
 _NUMERIC_DATE = re.compile(r"\b(\d{1,2})[./](\d{1,2})[./](\d{2,4})\b")
+# Contract maturity dates are stored as whatever raw text matched either
+# legal_patterns.DATE_NUMERIC or DATE_WORDY (contract_forensics.py doesn't
+# normalize them, since the two formats need different parsing). A maturity
+# date is at least as likely to be wordy ("11 сентября 2027 г.") as numeric
+# in real Russian contract drafting, so this module needs to parse both, not
+# just silently treat every wordy maturity date as "unparseable."
+_WORDY_MONTH = {
+    "январ": 1, "феврал": 2, "март": 3, "апрел": 4, "ма": 5, "июн": 6, "июл": 7,
+    "август": 8, "сентябр": 9, "октябр": 10, "ноябр": 11, "декабр": 12,
+}
+_WORDY_DATE = re.compile(
+    r"\b(\d{1,2})\s+([а-яё]+)\s+(\d{4})\s*г?\.?", re.IGNORECASE
+)
 
 
 def _parse_numeric_date(raw: str) -> date | None:
@@ -60,6 +73,25 @@ def _parse_numeric_date(raw: str) -> date | None:
         return date(int(year), int(month), int(day))
     except ValueError:
         return None
+
+
+def _parse_wordy_date(raw: str) -> date | None:
+    match = _WORDY_DATE.search(raw)
+    if not match:
+        return None
+    day, month_word, year = match.groups()
+    month_word = month_word.lower()
+    month = next((num for stem, num in _WORDY_MONTH.items() if month_word.startswith(stem)), None)
+    if month is None:
+        return None
+    try:
+        return date(int(year), month, int(day))
+    except ValueError:
+        return None
+
+
+def _parse_ru_date(raw: str) -> date | None:
+    return _parse_numeric_date(raw) or _parse_wordy_date(raw)
 
 
 def _normalize_amount(raw: str) -> str | None:
@@ -97,7 +129,7 @@ def extract_interest_claim(
         period_start is not None and earliest_payment_date is not None and period_start == earliest_payment_date
     )
 
-    parseable_maturities = [d for raw in contract_maturity_dates if (d := _parse_numeric_date(raw)) is not None]
+    parseable_maturities = [d for raw in contract_maturity_dates if (d := _parse_ru_date(raw)) is not None]
     latest_maturity = max(parseable_maturities) if parseable_maturities else None
 
     maturity_after_start: bool | None = None

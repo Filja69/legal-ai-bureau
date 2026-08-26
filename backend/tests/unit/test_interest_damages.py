@@ -57,9 +57,10 @@ def test_flags_maturity_date_after_period_start():
 
 
 def test_wordy_unparseable_maturity_date_does_not_produce_a_false_comparison():
-    """A wordy Russian maturity date this module can't reliably parse must
-    result in maturity_date_after_period_start=None (unknown), never a
-    guessed True/False.
+    """A fully-spelled-out wordy Russian maturity date (day and year in
+    words too, not just the month) is genuinely beyond this module's
+    parsing and must result in maturity_date_after_period_start=None
+    (unknown), never a guessed True/False.
     """
     result = extract_interest_claim(
         _CLAIM_AMOUNT_FIRST, earliest_payment_date=None, contract_maturity_dates=["первого января две тысячи тридцатого года"]
@@ -67,3 +68,17 @@ def test_wordy_unparseable_maturity_date_does_not_produce_a_false_comparison():
     assert result is not None
     assert result.latest_parseable_maturity_date is None
     assert result.maturity_date_after_period_start is None
+
+
+def test_semi_wordy_maturity_date_is_parsed_numeric_day_and_year():
+    """The common real-world contract format — numeric day, wordy month
+    name, numeric year ("11 сентября 2027 г.") — must be parsed, not
+    treated as unparseable; this is the exact format
+    contract_forensics.py's DATE_WORDY pattern extracts maturity dates in.
+    """
+    result = extract_interest_claim(
+        _CLAIM_AMOUNT_FIRST, earliest_payment_date=None, contract_maturity_dates=["11 сентября 2027 г."]
+    )
+    assert result is not None
+    assert result.latest_parseable_maturity_date == date(2027, 9, 11)
+    assert result.maturity_date_after_period_start is True
