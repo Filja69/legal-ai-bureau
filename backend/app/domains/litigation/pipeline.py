@@ -36,9 +36,11 @@ from app.domains.litigation.contradiction_detector import (
     detect_claim_vs_evidence_contradictions,
     detect_contradictions,
 )
+from app.domains.litigation.course_of_dealing import detect_course_of_dealing
 from app.domains.litigation.evidence_matrix import EvidenceMatrixRow, build_evidence_matrix
 from app.domains.litigation.fact_dedup import CanonicalFact, deduplicate_facts
 from app.domains.litigation.fact_extractor import FactEvidenceCandidate, extract_fact_candidates
+from app.domains.litigation.interest_damages import extract_interest_claim
 from app.domains.litigation.master_report import (
     MasterCaseReport,
     RelatedLitigationInput,
@@ -48,13 +50,16 @@ from app.domains.litigation.master_report import (
     build_contract_formation_findings,
     build_contract_mismatch_finding,
     build_corporate_relationship_findings,
+    build_course_of_dealing_finding,
     build_court_scenarios,
     build_draft_response_structure,
     build_evidence_gap_findings,
+    build_interest_damages_finding,
     build_one_pager,
     build_opposing_party_questions,
     build_payment_pattern_finding,
     build_related_litigation_findings,
+    build_theory_vs_conduct_finding,
     rank_findings,
 )
 from app.domains.litigation.payment_extractor import extract_payment_order_candidate
@@ -729,6 +734,24 @@ class LitigationCaseEngine:
                 dates.add(fact.normalized_value)
         return sorted(amounts), sorted(dates)
 
+    async def _claim_document_texts(self, case: Case) -> list[tuple[uuid.UUID, str, str]]:
+        """(document_id, title, extracted_text) for every CLAIM-role
+        document — same fetch shape as the CONTRACT-role fetch inside
+        get_master_report(), reused by interest_damages.py's claim-text
+        extraction so it never has to duplicate a document lookup.
+        """
+        claim_case_documents = (
+            await self._session.execute(
+                select(CaseDocument).where(CaseDocument.case_id == case.id, CaseDocument.role == CaseDocumentRole.CLAIM)
+            )
+        ).scalars().all()
+        results: list[tuple[uuid.UUID, str, str]] = []
+        for cd in claim_case_documents:
+            document = await self._session.get(Document, cd.document_id)
+            if document is not None:
+                results.append((document.id, document.title, document.extracted_text or ""))
+        return results
+
     async def get_master_report(self, case: Case) -> MasterCaseReport:
         """Top-level synthesis — zero LLM calls, everything below is a
         template rule keyed off already-persisted structured data. See
@@ -806,6 +829,30 @@ class LitigationCaseEngine:
         findings.extend(build_evidence_gap_findings(result_summary.missing_critical_evidence))
         findings.extend(build_corporate_relationship_findings(party_relationship_findings))
         findings.extend(build_related_litigation_findings(related_litigation_inputs))
+
+        course_of_dealing_result = detect_course_of_dealing(money_flow.referenced_contract_dates, contract_version_matrix)
+        course_of_dealing_finding = build_course_of_dealing_finding(course_of_dealing_result)
+        if course_of_dealing_finding is not None:
+            findings.append(course_of_dealing_finding)
+
+        theory_vs_conduct_finding = build_theory_vs_conduct_finding(allegation_types_present, payment_pattern)
+        if theory_vs_conduct_finding is not None:
+            findings.append(theory_vs_conduct_finding)
+
+        claim_document_texts = [text for _id, _title, text in await self._claim_document_texts(case)]
+        earliest_payment_date = min(
+            (t.payment_date for t in money_flow.transactions if t.payment_date is not None), default=None
+        )
+        contract_maturity_dates = [d for terms in contract_version_matrix for d in terms.maturity_dates]
+        interest_finding = None
+        for claim_text in claim_document_texts:
+            interest_claim = extract_interest_claim(claim_text, earliest_payment_date, contract_maturity_dates)
+            if interest_claim is not None:
+                interest_finding = build_interest_damages_finding(interest_claim)
+                break
+        if interest_finding is not None:
+            findings.append(interest_finding)
+
         findings = rank_findings(findings)
 
         claim_contradiction_findings = [f for f in findings if f.category.value == "claim_contradiction"]

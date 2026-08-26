@@ -111,14 +111,26 @@ export function MasterReportSection({
                 key={f.id}
                 title={f.title}
                 badge={<Badge tone={STRENGTH_TONE[f.strength] ?? "gray"}>{f.strength}</Badge>}
-                meta={f.source_document_titles.slice(0, 1).map((t) => (
-                  <Badge key={t} tone="gray">
-                    {t}
-                  </Badge>
-                ))}
+                meta={[
+                  ...f.source_document_titles.slice(0, 1).map((t) => (
+                    <Badge key={t} tone="gray">
+                      {t}
+                    </Badge>
+                  )),
+                  f.legal_research_required && (
+                    <Badge key="legal-research" tone="violet">
+                      Требуется правовое исследование
+                    </Badge>
+                  ),
+                ]}
               >
                 {f.statement}
                 {f.caveat && <div className="mt-1.5 text-xs text-muted">Caveat: {f.caveat}</div>}
+                {f.alternative_explanations.length > 0 && (
+                  <div className="mt-1.5 text-xs text-muted">
+                    Альтернативные объяснения: {f.alternative_explanations.join("; ")}
+                  </div>
+                )}
               </Finding>
             ))}
           </div>

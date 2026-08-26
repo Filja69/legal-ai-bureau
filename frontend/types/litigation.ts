@@ -218,9 +218,9 @@ export interface CaseRelatedLitigation {
 // --- Master Case Report ---
 
 export type FindingCategory =
-  | "claim_contradiction" | "payment_pattern" | "contract_formation" | "contract_mismatch" | "party_conduct"
-  | "interest_calculation" | "procedural" | "corporate_relationship" | "related_litigation" | "evidence_gap"
-  | "legal_argument" | "risk" | "other";
+  | "claim_contradiction" | "payment_pattern" | "contract_formation" | "contract_mismatch" | "course_of_dealing"
+  | "party_conduct" | "interest_calculation" | "procedural" | "corporate_relationship" | "related_litigation"
+  | "evidence_gap" | "legal_argument" | "risk" | "other";
 
 export interface MasterFinding {
   id: string;
@@ -244,6 +244,10 @@ export interface MasterFinding {
   missing_evidence: string[];
   recommended_action: string | null;
   verification_status: string;
+  alternative_explanations: string[];
+  what_would_strengthen: string[];
+  what_would_weaken: string[];
+  legal_research_required: boolean;
 }
 
 export interface CaseOnePager {

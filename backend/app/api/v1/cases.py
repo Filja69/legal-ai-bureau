@@ -859,6 +859,8 @@ async def get_case_master_report(
                 response_to_counterargument=f.response_to_counterargument, caveat=f.caveat,
                 missing_evidence=f.missing_evidence, recommended_action=f.recommended_action,
                 verification_status=f.verification_status,
+                alternative_explanations=f.alternative_explanations, what_would_strengthen=f.what_would_strengthen,
+                what_would_weaken=f.what_would_weaken, legal_research_required=f.legal_research_required,
             )
             for f in report.findings
         ],

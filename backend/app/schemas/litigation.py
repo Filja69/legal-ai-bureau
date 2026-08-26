@@ -353,6 +353,10 @@ class MasterFindingOut(BaseModel):
     missing_evidence: list[str]
     recommended_action: str | None
     verification_status: str
+    alternative_explanations: list[str]
+    what_would_strengthen: list[str]
+    what_would_weaken: list[str]
+    legal_research_required: bool
 
 
 class CaseOnePagerOut(BaseModel):

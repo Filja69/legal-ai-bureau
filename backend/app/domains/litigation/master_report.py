@@ -38,6 +38,8 @@ from app.domains.litigation.case_result_summary import MissingEvidenceItem
 from app.domains.litigation.conduct_patterns import PaymentPatternResult
 from app.domains.litigation.contract_forensics import ContractVersionTerms
 from app.domains.litigation.contradiction_detector import ClaimEvidenceContradiction, ClaimTheoryTension
+from app.domains.litigation.course_of_dealing import CourseOfDealingResult
+from app.domains.litigation.interest_damages import InterestClaimResult
 from app.models.matters import AllegationType
 
 if TYPE_CHECKING:
@@ -49,6 +51,7 @@ class FindingCategory(str, enum.Enum):
     PAYMENT_PATTERN = "payment_pattern"
     CONTRACT_FORMATION = "contract_formation"
     CONTRACT_MISMATCH = "contract_mismatch"
+    COURSE_OF_DEALING = "course_of_dealing"
     PARTY_CONDUCT = "party_conduct"
     INTEREST_CALCULATION = "interest_calculation"
     PROCEDURAL = "procedural"
@@ -83,6 +86,13 @@ class MasterFinding:
     missing_evidence: list[str] = field(default_factory=list)
     recommended_action: str | None = None
     verification_status: str = "document_supported"
+    # Adversarial/self-critical fields (case_reasoning_graph brief §6) — left
+    # empty unless the builder that produces this finding actually has
+    # something non-fabricated to say; never populated generically.
+    alternative_explanations: list[str] = field(default_factory=list)
+    what_would_strengthen: list[str] = field(default_factory=list)
+    what_would_weaken: list[str] = field(default_factory=list)
+    legal_research_required: bool = False
 
 
 def _allegation_author_side(our_side_role: str) -> tuple[str, str]:
@@ -318,6 +328,139 @@ def build_corporate_relationship_findings(relationship_findings: list[PartyRelat
     ]
 
 
+def build_course_of_dealing_finding(result: CourseOfDealingResult) -> MasterFinding | None:
+    if not result.is_significant:
+        return None
+    return MasterFinding(
+        id="course_of_dealing:money_flow",
+        category=FindingCategory.COURSE_OF_DEALING,
+        title="Payments reference more than one contractual date",
+        statement=result.description,
+        helps_side="neutral", hurts_side="neutral",
+        strength="HIGH" if result.matching_term_document_pairs > 0 else "MEDIUM",
+        confidence=(
+            f"{len(result.distinct_contract_dates)} distinct referenced contract dates — deterministic count "
+            "from Money Flow."
+        ),
+        legal_significance=(
+            "May be relevant to whether the parties had an ongoing or renewed lending relationship, rather "
+            "than a single isolated transaction — a question the parties' full course of dealing bears on."
+        ),
+        caveat=(
+            "A later contractual reference does not by itself prove an earlier arrangement's terms or "
+            "existence, and an earlier reference does not by itself extend to cover a later, separately-"
+            "referenced transfer — this must be argued from the full record, not assumed from the dates alone."
+        ),
+        alternative_explanations=[
+            "The parties entered a genuinely new, separate agreement unrelated to the earlier reference.",
+            "The later reference formalizes or renews the same underlying lending relationship as the earlier one.",
+        ],
+        what_would_strengthen=[
+            "Correspondence or accounting records showing how the parties themselves treated the two references.",
+        ],
+        recommended_action=(
+            "Obtain the full text of each referenced contract and any correspondence discussing how the "
+            "transfers relate to each other."
+        ),
+    )
+
+
+_MISTAKE_LIKE_ALLEGATIONS = frozenset({AllegationType.PAYMENT_BY_MISTAKE, AllegationType.NO_LEGAL_BASIS})
+
+
+def build_theory_vs_conduct_finding(
+    allegation_types_present: set[AllegationType], pattern: PaymentPatternResult
+) -> MasterFinding | None:
+    """Cross-links two independently-computed signals — allegation type
+    (E1) and payment-pattern significance (conduct_patterns.py) — into one
+    finding. Never declares the allegation false; the tension is framed as
+    something inviting scrutiny, exactly like every other tension this
+    package detects.
+    """
+    matched_types = allegation_types_present & _MISTAKE_LIKE_ALLEGATIONS
+    if not pattern.is_significant or not matched_types:
+        return None
+    type_labels = ", ".join(sorted(t.value for t in matched_types))
+    return MasterFinding(
+        id="theory_vs_conduct:payment_pattern",
+        category=FindingCategory.PARTY_CONDUCT,
+        title="Repeated payment conduct may be in tension with a mistake/no-legal-basis theory",
+        statement=(
+            f"The pleading asserts '{type_labels}', while the payment pattern in this case ({pattern.description}) "
+            "reflects repeated, similarly-purposed transfers. A pattern of repeated conduct may invite scrutiny "
+            "of a mistake-based theory, though it does not by itself disprove it."
+        ),
+        helps_side="neutral", hurts_side="neutral", strength="MEDIUM",
+        confidence="Deterministic — allegation type(s) and payment-pattern significance both computed from structured case data.",
+        legal_significance=(
+            "A repeated pattern of similarly-purposed transfers is conduct a court may weigh against a claim "
+            "that each transfer was independently mistaken or without legal basis."
+        ),
+        caveat=(
+            "Repeated conduct alone does not establish that any individual transfer was not mistaken — each "
+            "instance must still be assessed on its own facts."
+        ),
+        alternative_explanations=["Each transfer could have been independently and separately mistaken, notwithstanding the pattern."],
+        recommended_action="Obtain correspondence or internal records showing whether each transfer was independently authorized/reviewed.",
+    )
+
+
+def build_interest_damages_finding(result: InterestClaimResult | None) -> MasterFinding | None:
+    if result is None or (result.claimed_amount is None and result.period_start is None):
+        return None
+
+    legal_research_required = True  # every branch below requires verified law to resolve, never guessed here
+    if result.maturity_date_after_period_start is True:
+        legal_significance = (
+            "The claimed interest period begins before a contractual maturity/return date found in the record. "
+            "Whether interest for use of another's funds may properly run before a loan's own maturity date — "
+            "as opposed to only from a later default date — is a legal question this system does not resolve."
+        )
+        strength = "HIGH"
+    elif result.period_start_matches_earliest_payment:
+        legal_significance = (
+            "The claimed interest period begins on the date of the first payment itself. Whether interest may "
+            "properly accrue from the transfer date, or only from a later date (e.g. demand or contractual "
+            "maturity), is a legal question this system does not resolve."
+        )
+        strength = "MEDIUM"
+    else:
+        legal_significance = (
+            "A claimed interest/damages period was identified in the case record, but this system found no "
+            "contract maturity date or matching payment date to cross-reference it against."
+        )
+        strength = "MEDIUM"
+
+    period_text = (
+        f" for the period {result.period_start.isoformat()} to {result.period_end.isoformat()}"
+        if result.period_start and result.period_end
+        else ""
+    )
+    statement = (
+        f"The claim includes an interest/damages figure"
+        f"{f' of {result.claimed_amount}' if result.claimed_amount else ''}{period_text}."
+    )
+
+    return MasterFinding(
+        id="interest_calculation:claim",
+        category=FindingCategory.INTEREST_CALCULATION,
+        title="Claimed interest/damages period requires legal verification",
+        statement=statement,
+        helps_side="neutral", hurts_side="neutral", strength=strength,
+        confidence="Deterministic extraction from claim-document text; the legal conclusion is explicitly not resolved.",
+        legal_significance=legal_significance,
+        caveat="This system does not calculate or verify interest against unverified legal rules — see legal_research_required.",
+        alternative_explanations=[
+            "Interest may properly run from the transfer date if no contractual maturity governs the claim.",
+            "Interest may only be due from a contractual default/maturity date, if one is established in the record.",
+        ],
+        what_would_strengthen=["Verified case law or statute confirming the correct accrual start date for this fact pattern."],
+        what_would_weaken=["A contractual provision or verified legal rule confirming interest properly accrues from the transfer date."],
+        recommended_action="Obtain verified legal research on the applicable accrual start date before relying on either interpretation.",
+        legal_research_required=legal_research_required,
+    )
+
+
 def rank_findings(findings: list[MasterFinding]) -> list[MasterFinding]:
     order = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3}
     return sorted(findings, key=lambda f: order.get(f.strength, 4))
@@ -424,6 +567,36 @@ def build_court_scenarios(findings: list[MasterFinding]) -> list[CourtScenario]:
                 facts_against=["A pattern of transfers does not itself establish what the parties agreed, if anything."],
             )
         )
+    if FindingCategory.COURSE_OF_DEALING in categories_present:
+        scenarios.append(
+            CourtScenario(
+                scenario=(
+                    "Court finds an ongoing or renewed lending relationship between the parties spanning "
+                    "multiple contractual references, rather than a single isolated or mistaken transaction."
+                ),
+                why_court_could_get_there=(
+                    "Payments in the record reference more than one contractual date, weighing toward a "
+                    "continuing relationship."
+                ),
+                facts_supporting=[f.title for f in findings if f.category == FindingCategory.COURSE_OF_DEALING],
+                facts_against=[
+                    "Multiple contractual references may equally reflect separate, unrelated transactions "
+                    "rather than one continuing relationship."
+                ],
+            )
+        )
+    if FindingCategory.INTEREST_CALCULATION in categories_present:
+        scenarios.append(
+            CourtScenario(
+                scenario="Court adopts a different interest/damages accrual start date than the one pleaded.",
+                why_court_could_get_there=(
+                    "The claimed interest period's start date has not been verified against a confirmed "
+                    "legal rule or contractual maturity date."
+                ),
+                facts_supporting=[f.title for f in findings if f.category == FindingCategory.INTEREST_CALCULATION],
+                facts_against=["The pleaded accrual date may be correct if supported by verified legal authority not yet obtained."],
+            )
+        )
     scenarios.append(
         CourtScenario(
             scenario="Court substantially adopts the claimant's theory as pleaded.",
@@ -459,6 +632,16 @@ _QUESTION_TEMPLATES: dict[FindingCategory, list[str]] = {
     FindingCategory.CORPORATE_RELATIONSHIP: [
         "When precisely did this relationship begin, and what corporate records establish that date?",
         "What access, if any, did this person have to the other party's internal information during the relevant period?",
+    ],
+    FindingCategory.COURSE_OF_DEALING: [
+        "Do the multiple contractual references in the record reflect one continuing relationship or separate, unrelated agreements?",
+        "Why does a later transfer reference a different contractual date than the earlier transfers?",
+    ],
+    FindingCategory.INTEREST_CALCULATION: [
+        "On what legal basis does the claimed interest/damages period begin on the date stated, rather than any other date?",
+    ],
+    FindingCategory.PARTY_CONDUCT: [
+        "Was each transfer independently authorized and reviewed, or were they treated as part of a single ongoing arrangement?",
     ],
 }
 
@@ -574,21 +757,21 @@ def build_draft_response_structure(findings: list[MasterFinding]) -> list[DraftR
     for f in findings:
         by_category.setdefault(f.category, []).append(f)
 
-    category_by_section: dict[str, FindingCategory | None] = {
-        "Основание перечислений / договорные отношения": FindingCategory.CONTRACT_FORMATION,
-        "Внутренние противоречия истца": FindingCategory.CLAIM_CONTRADICTION,
-        "Проценты / убытки": FindingCategory.INTEREST_CALCULATION,
-        "Процессуальные вопросы": FindingCategory.PROCEDURAL,
+    category_by_section: dict[str, list[FindingCategory]] = {
+        "Основание перечислений / договорные отношения": [FindingCategory.CONTRACT_FORMATION, FindingCategory.COURSE_OF_DEALING],
+        "Внутренние противоречия истца": [FindingCategory.CLAIM_CONTRADICTION, FindingCategory.PARTY_CONDUCT],
+        "Проценты / убытки": [FindingCategory.INTEREST_CALCULATION],
+        "Процессуальные вопросы": [FindingCategory.PROCEDURAL],
     }
 
     sections: list[DraftResponseSection] = []
     for section, argument in _RESPONSE_STRUCTURE_TEMPLATE:
-        relevant_category = category_by_section.get(section)
-        relevant = by_category.get(relevant_category, []) if relevant_category else []
+        relevant_categories = category_by_section.get(section, [])
+        relevant = [f for category in relevant_categories for f in by_category.get(category, [])]
         sections.append(
             DraftResponseSection(
                 section=section, argument=argument, supporting_finding_ids=[f.id for f in relevant],
-                caution="No findings currently support this section — do not overstate." if relevant_category and not relevant else None,
+                caution="No findings currently support this section — do not overstate." if relevant_categories and not relevant else None,
             )
         )
     return sections

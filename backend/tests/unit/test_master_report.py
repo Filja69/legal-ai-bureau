@@ -15,6 +15,8 @@ from app.domains.litigation.contract_forensics import (
     extract_contract_terms,
 )
 from app.domains.litigation.contradiction_detector import AllegationInput, detect_claim_theory_tensions
+from app.domains.litigation.course_of_dealing import detect_course_of_dealing
+from app.domains.litigation.interest_damages import extract_interest_claim
 from app.domains.litigation.master_report import (
     FindingCategory,
     RelatedLitigationInput,
@@ -23,12 +25,15 @@ from app.domains.litigation.master_report import (
     build_claim_contradiction_findings,
     build_contract_formation_findings,
     build_contract_mismatch_finding,
+    build_course_of_dealing_finding,
     build_court_scenarios,
     build_draft_response_structure,
+    build_interest_damages_finding,
     build_one_pager,
     build_opposing_party_questions,
     build_payment_pattern_finding,
     build_related_litigation_findings,
+    build_theory_vs_conduct_finding,
     rank_findings,
 )
 from app.models.matters import AllegationType
@@ -277,3 +282,77 @@ def test_draft_response_structure_flags_unsupported_sections():
 def test_case_map_reports_missing_evidence_when_no_claim_dates():
     case_map = build_case_map([], [])
     assert "not derivable" in case_map.note or "не установлен" in case_map.note.lower() or case_map.note != ""
+
+
+# --- Course of dealing finding wiring ---
+
+
+def test_course_of_dealing_finding_omitted_for_single_referenced_date():
+    result = detect_course_of_dealing({"2025-03-01": 5}, [])
+    assert build_course_of_dealing_finding(result) is None
+
+
+def test_course_of_dealing_finding_present_and_neutral_for_two_dates():
+    result = detect_course_of_dealing({"2025-03-01": 2, "2025-11-20": 1}, [])
+    finding = build_course_of_dealing_finding(result)
+    assert finding is not None
+    assert finding.category == FindingCategory.COURSE_OF_DEALING
+    assert finding.helps_side == "neutral" and finding.hurts_side == "neutral"
+    assert "does not by itself prove" in finding.caveat
+    assert finding.alternative_explanations  # never a one-sided conclusion
+
+
+# --- Theory vs conduct finding wiring ---
+
+
+def test_theory_vs_conduct_finding_requires_both_signals():
+    from app.domains.litigation.conduct_patterns import PaymentPatternResult
+
+    insignificant = PaymentPatternResult(
+        transaction_count=1, span_days=None, distinct_payers=1, distinct_recipients=1, is_significant=False, description=""
+    )
+    assert build_theory_vs_conduct_finding({AllegationType.PAYMENT_BY_MISTAKE}, insignificant) is None
+
+    significant = PaymentPatternResult(
+        transaction_count=4, span_days=200, distinct_payers=1, distinct_recipients=1, is_significant=True,
+        description="4 transfers.",
+    )
+    assert build_theory_vs_conduct_finding({AllegationType.UNJUST_ENRICHMENT}, significant) is None
+
+    finding = build_theory_vs_conduct_finding({AllegationType.PAYMENT_BY_MISTAKE}, significant)
+    assert finding is not None
+    assert finding.category == FindingCategory.PARTY_CONDUCT
+    assert "does not by itself disprove" in finding.statement
+
+
+# --- Interest/damages finding wiring ---
+
+
+def test_interest_damages_finding_omitted_when_no_claim_text_matches():
+    assert build_interest_damages_finding(None) is None
+
+
+def test_interest_damages_finding_flags_legal_research_required():
+    claim = extract_interest_claim(
+        "Проценты за пользование чужими денежными средствами в размере 90000,00 руб. за период с 01.01.2025 по 01.06.2025.",
+        earliest_payment_date=date(2025, 1, 1),
+        contract_maturity_dates=[],
+    )
+    finding = build_interest_damages_finding(claim)
+    assert finding is not None
+    assert finding.category == FindingCategory.INTEREST_CALCULATION
+    assert finding.legal_research_required is True
+    assert finding.helps_side == "neutral" and finding.hurts_side == "neutral"
+
+
+# --- New MasterFinding fields default safely ---
+
+
+def test_master_finding_new_fields_default_empty():
+    from app.domains.litigation.master_report import MasterFinding
+
+    f = MasterFinding(id="x", category=FindingCategory.OTHER, title="t", statement="s")
+    assert f.alternative_explanations == []
+    assert f.what_would_strengthen == []
+    assert f.what_would_weaken == []
+    assert f.legal_research_required is False
