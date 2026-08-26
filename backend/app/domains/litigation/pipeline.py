@@ -62,6 +62,7 @@ from app.domains.litigation.master_report import (
     build_theory_vs_conduct_finding,
     rank_findings,
 )
+from app.domains.litigation.payment_dedup import deduplicate_payment_orders
 from app.domains.litigation.payment_extractor import extract_payment_order_candidate
 from app.domains.litigation.timeline_builder import build_timeline
 from app.models.legal_knowledge import LawVersion
@@ -307,12 +308,21 @@ class LitigationCaseEngine:
         many payments cite each one. Deliberately does not merge same-dated
         payments into "one obligation" — see payment_extractor.py's module
         docstring on why that's a candidate-linkage question, not a fact.
+
+        Rows are deduplicated first (payment_dedup.py) — more than one
+        document (e.g. a payment order and a corroborating bank statement)
+        can describe the exact same real transfer, and without this the
+        total would double-count every corroborated payment.
         """
-        payment_orders = (
+        payment_orders_raw = (
             await self._session.execute(
                 select(CasePaymentOrder).where(CasePaymentOrder.case_id == case.id).order_by(CasePaymentOrder.payment_date)
             )
         ).scalars().all()
+        payment_orders = sorted(
+            deduplicate_payment_orders(list(payment_orders_raw)),
+            key=lambda p: (p.payment_date is None, p.payment_date or date.min),
+        )
 
         transactions = [
             MoneyFlowTransaction(

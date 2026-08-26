@@ -215,6 +215,12 @@ _PAYMENT_OCR_MERGED_LOAN_PHRASE = """
 Перечисление средств подоговору процентного займаб/н от 15.03.2025г. НДС необлагается
 """
 
+_PAYMENT_OCR_MERGED_LOAN_PHRASE_NO_NUMBER_DESIGNATION = """
+Выписка по счету N 40702810000000000002 с 20.02.2025 по 20.02.2025
+01 20.02.2025 4 500 000.00 ООО "ДЕЛЬТА ТРЕЙД"
+Перечисление средств подоговору процентного займаот 10.01.2025г. НДС необлагается
+"""
+
 
 def test_extracts_loan_reference_when_ocr_dropped_spaces_around_dogovor_and_bn():
     """A real scanned bank statement (выписка по счету, a different layout
@@ -231,6 +237,18 @@ def test_extracts_loan_reference_when_ocr_dropped_spaces_around_dogovor_and_bn()
     # Bank-statement decimal amount format ("6 000 000.00"), not the payment-order
     # dash-kopeck format — the decimal-point fallback should still find it.
     assert candidate.amount == "6000000.00"
+
+
+def test_extracts_loan_reference_when_ocr_dropped_space_before_ot_with_no_number_designation():
+    """A third OCR-merge variant found live on a real bank statement: when
+    the purpose states no "б/н" or "№" designation at all, "займа" runs
+    straight into "от" with no space — "займаот" — since there was no
+    optional-group text to absorb the missing space this time.
+    """
+    candidate = extract_payment_order_candidate(_document(), _chunk(_PAYMENT_OCR_MERGED_LOAN_PHRASE_NO_NUMBER_DESIGNATION))
+    assert candidate is not None
+    assert candidate.referenced_contract_type == "договор процентного займа"
+    assert candidate.referenced_contract_date == date(2025, 1, 10)
 
 
 def test_decimal_amount_fallback_does_not_glom_a_preceding_date_into_the_amount():

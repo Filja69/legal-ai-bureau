@@ -35,17 +35,18 @@ _EXCERPT_RADIUS = 200
 # "... договору займа №5 от 11.09.2024г." (an explicit number) — one pattern,
 # three optional/alternative number-designation branches.
 #
-# The "по" -> "договор" and "займа" -> "б/н"/"№" gaps use \s* (zero-or-more)
-# rather than \s+ — OCR'd scanned documents routinely drop the space at a
-# narrow table-cell line wrap, producing "подоговору" or "займаб/н" as one
-# run-on word (found live on a real OCR'd bank statement, "Перечисление
-# средств подоговору процентного займаб/н от..."). \s* still requires the
-# literal word "по" (or "займа") immediately adjacent, so this doesn't
-# loosen what counts as a match, only where the OCR happened to lose a space.
+# The "по" -> "договор", "займа" -> "б/н"/"№", and "займа" -> "от" gaps all
+# use \s* (zero-or-more) rather than \s+ — OCR'd scanned documents routinely
+# drop the space at a narrow table-cell line wrap, producing "подоговору",
+# "займаб/н", or (when no б/н or № is stated at all) "займаот" as one
+# run-on word (all three found live on real OCR'd bank statements, e.g.
+# "Перечисление средств подоговору процентного займаот 11.09.2024г."). \s*
+# still requires the literal word ("по"/"займа") immediately adjacent, so
+# this doesn't loosen what counts as a match, only where OCR lost a space.
 _LOAN_PAYMENT_PURPOSE = re.compile(
     r"по\s*договор[а-яё]*\s+(?:процентного\s+)?займа"
     r"(?:\s*(?P<no_number>б/н)|\s*№\s*(?P<explicit_number>\S+))?"
-    r"\s+от\s+(?P<date>\d{1,2}[./]\d{1,2}[./]\d{2,4})",
+    r"\s*от\s+(?P<date>\d{1,2}[./]\d{1,2}[./]\d{2,4})",
     re.IGNORECASE,
 )
 _PAYMENT_PURPOSE_LINE = re.compile(r"Назначение\s+платежа\s*[:\-]?\s*(.+)", re.IGNORECASE)
