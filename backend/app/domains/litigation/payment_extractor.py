@@ -34,9 +34,17 @@ _EXCERPT_RADIUS = 200
 # "... договору процентного займа от 11.09.2024г." (no "б/н") or
 # "... договору займа №5 от 11.09.2024г." (an explicit number) — one pattern,
 # three optional/alternative number-designation branches.
+#
+# The "по" -> "договор" and "займа" -> "б/н"/"№" gaps use \s* (zero-or-more)
+# rather than \s+ — OCR'd scanned documents routinely drop the space at a
+# narrow table-cell line wrap, producing "подоговору" or "займаб/н" as one
+# run-on word (found live on a real OCR'd bank statement, "Перечисление
+# средств подоговору процентного займаб/н от..."). \s* still requires the
+# literal word "по" (or "займа") immediately adjacent, so this doesn't
+# loosen what counts as a match, only where the OCR happened to lose a space.
 _LOAN_PAYMENT_PURPOSE = re.compile(
-    r"по\s+договор[а-яё]*\s+(?:процентного\s+)?займа"
-    r"(?:\s+(?P<no_number>б/н)|\s+№\s*(?P<explicit_number>\S+))?"
+    r"по\s*договор[а-яё]*\s+(?:процентного\s+)?займа"
+    r"(?:\s*(?P<no_number>б/н)|\s*№\s*(?P<explicit_number>\S+))?"
     r"\s+от\s+(?P<date>\d{1,2}[./]\d{1,2}[./]\d{2,4})",
     re.IGNORECASE,
 )
@@ -49,6 +57,18 @@ _PAYMENT_PURPOSE_LINE = re.compile(r"Назначение\s+платежа\s*[:\
 # actual intent was just "kopecks are exactly two digits," which (?!\d)
 # expresses without assuming anything about what character follows.
 _AMOUNT_FIELD = re.compile(r"Сумма\s+(\d[\d\s]*)-(\d{2})(?!\d)")
+# Fallback for the bank-statement (выписка по счету) layout — see the
+# extract_payment_order_candidate() fallback branch's comment. Anchored
+# on "a full date immediately followed by the amount" (the observed real
+# row shape: "01 22.04.2025 5 000 000.00 044525593 ...") rather than a
+# bare free-floating digit run — a plain \d[\d\s]*\.\d{2} scan is unsafe
+# here because a thousands-grouping space can't be told apart from the
+# single space that separates two genuinely different numbers on the
+# same line (e.g. it would glom the date's own trailing digits into the
+# amount: "...2025 5 000 000.00..." -> wrongly "20255000000.00").
+_DECIMAL_AMOUNT_NEAR_DATE = re.compile(
+    r"\d{1,2}[./]\d{1,2}[./]\d{2,4}\s+(\d[\d \xa0 ]*)\.(\d{2})(?!\.\d)"
+)
 _DATE_NEAR_HEADER = re.compile(
     # The gap between the header/label and the date can itself contain
     # digits (a document number, e.g. "ПОРУЧЕНИЕ № 11 13.09.2024") — so this
@@ -136,7 +156,21 @@ def extract_payment_order_candidate(document: Document, chunk: DocumentChunk) ->
     recipient = _find_party(text, "Получатель")
 
     amount_match = _AMOUNT_FIELD.search(text)
-    amount = f"{amount_match.group(1).replace(' ', '')}.{amount_match.group(2)}" if amount_match else None
+    if amount_match:
+        amount = f"{amount_match.group(1).replace(' ', '')}.{amount_match.group(2)}"
+    else:
+        # Fallback for a different real document layout — a bank account
+        # statement (выписка по счету) states the amount as a plain decimal
+        # figure in a Дебет/Кредит column ("5 000 000.00"), not the
+        # dash-kopeck format платёжное поручение uses ("5000000-00"). The
+        # decimal point is the distinguishing signal versus a bare integer
+        # like an account/BIK/INN number, which never carries one.
+        decimal_match = _DECIMAL_AMOUNT_NEAR_DATE.search(text)
+        if decimal_match:
+            digits = decimal_match.group(1).replace(" ", "").replace(chr(0xA0), "").replace(chr(0x202F), "")
+            amount = f"{digits}.{decimal_match.group(2)}"
+        else:
+            amount = None
 
     date_match = _DATE_NEAR_HEADER.search(text)
     payment_date = _normalize_date(date_match.group(1)) if date_match else None
@@ -158,7 +192,7 @@ def extract_payment_order_candidate(document: Document, chunk: DocumentChunk) ->
 
     execution_status = "executed" if re.search(r"исполнен[оа]", text, re.IGNORECASE) else "unknown"
 
-    if payer is None and recipient is None and amount is None and payment_purpose is None:
+    if payer is None and recipient is None and amount is None and payment_purpose is None and referenced_contract_date is None:
         return None
 
     return PaymentOrderCandidate(

@@ -207,3 +207,55 @@ def test_extracts_payer_spelled_out_in_full_legal_form_not_abbreviated():
     candidate = extract_payment_order_candidate(_document(), _chunk(_PAYMENT_SPELLED_OUT_LEGAL_FORM))
     assert candidate is not None
     assert candidate.payer is not None and "СЕВЕРНЫЙ ПОЛЮС" in candidate.payer
+
+
+_PAYMENT_OCR_MERGED_LOAN_PHRASE = """
+Выписка по счету N 40702810000000000001 с 05.05.2025 по 05.05.2025
+01 05.05.2025 6 000 000.00 ООО "ГАММА ТРЕЙД"
+Перечисление средств подоговору процентного займаб/н от 15.03.2025г. НДС необлагается
+"""
+
+
+def test_extracts_loan_reference_when_ocr_dropped_spaces_around_dogovor_and_bn():
+    """A real scanned bank statement (выписка по счету, a different layout
+    from платёжное поручение) OCR'd with narrow table cells routinely drops
+    the space at a line wrap — "по договору" becomes "подоговору" and
+    "займа б/н" becomes "займаб/н". The loan-reference pattern must still
+    recognize this as the same phrase, not silently miss it.
+    """
+    candidate = extract_payment_order_candidate(_document(), _chunk(_PAYMENT_OCR_MERGED_LOAN_PHRASE))
+    assert candidate is not None
+    assert candidate.referenced_contract_type == "договор процентного займа"
+    assert candidate.referenced_contract_date == date(2025, 3, 15)
+    assert candidate.referenced_contract_number is None  # "б/н" -- explicitly no number, even when glued to "займа"
+    # Bank-statement decimal amount format ("6 000 000.00"), not the payment-order
+    # dash-kopeck format — the decimal-point fallback should still find it.
+    assert candidate.amount == "6000000.00"
+
+
+def test_decimal_amount_fallback_does_not_glom_a_preceding_date_into_the_amount():
+    """A thousands-grouping space inside an amount ("5 000 000.00") is
+    visually identical to the single space that separates two genuinely
+    different numbers on the same line — a real bank-statement row reads
+    "<row#> <date> <amount> <BIK>...". Without anchoring on the date, a
+    free-floating digit scan would wrongly absorb the date's own trailing
+    digits into the amount (e.g. "...2025 5 000 000.00..." -> the wrong
+    "20255000000.00" instead of "5000000.00").
+    """
+    text = "01 22.04.2025 5 000 000.00 044525593 ИНН 7743188387"
+    candidate = extract_payment_order_candidate(_document(), _chunk(text))
+    assert candidate is not None
+    assert candidate.amount == "5000000.00"
+
+
+def test_candidate_not_discarded_when_only_loan_reference_is_recognized():
+    """A chunk with no parseable payer/recipient/amount/purpose but a real
+    loan-reference match must still produce a candidate — discarding it
+    would silently drop the one signal (referenced_contract_date) that
+    course-of-dealing detection depends on.
+    """
+    text = "Перечисление средств по договору процентного займа от 01.01.2026г."
+    candidate = extract_payment_order_candidate(_document(), _chunk(text))
+    assert candidate is not None
+    assert candidate.referenced_contract_date == date(2026, 1, 1)
+    assert candidate.payer is None and candidate.recipient is None and candidate.amount is None
