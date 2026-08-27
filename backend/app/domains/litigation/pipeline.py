@@ -40,7 +40,7 @@ from app.domains.litigation.course_of_dealing import detect_course_of_dealing
 from app.domains.litigation.evidence_matrix import EvidenceMatrixRow, build_evidence_matrix
 from app.domains.litigation.fact_dedup import CanonicalFact, deduplicate_facts
 from app.domains.litigation.fact_extractor import FactEvidenceCandidate, extract_fact_candidates
-from app.domains.litigation.interest_damages import extract_interest_calculation_table, extract_interest_claim
+from app.domains.litigation.interest_damages import extract_interest_calculation_table, extract_interest_claim, parse_ru_date
 from app.domains.litigation.master_report import (
     MasterCaseReport,
     RelatedLitigationInput,
@@ -910,13 +910,22 @@ class LitigationCaseEngine:
             (t.payment_date for t in money_flow.transactions if t.payment_date is not None), default=None
         )
         contract_maturity_dates = [d for terms in contract_version_matrix for d in terms.maturity_dates]
+        # Computed directly from contract_maturity_dates, independent of
+        # whether extract_interest_claim below finds a match: a claim whose
+        # damages are stated only as a per-installment table (Part 2), with
+        # no single "проценты за пользование чужими денежными средствами"
+        # sentence anywhere in its text, must still get a maturity-date
+        # comparison for Part 3's temporal reasoning — that must not be
+        # silently lost just because the simpler single-period extractor
+        # found nothing to match.
+        parseable_maturities = [d for raw in contract_maturity_dates if (d := parse_ru_date(raw)) is not None]
+        latest_parseable_maturity_date = max(parseable_maturities) if parseable_maturities else None
+
         interest_finding = None
-        latest_parseable_maturity_date = None
         for claim_text in claim_document_texts:
             interest_claim = extract_interest_claim(claim_text, earliest_payment_date, contract_maturity_dates)
             if interest_claim is not None:
                 interest_finding = build_interest_damages_finding(interest_claim)
-                latest_parseable_maturity_date = interest_claim.latest_parseable_maturity_date
                 break
         if interest_finding is not None:
             findings.append(interest_finding)
@@ -951,7 +960,14 @@ class LitigationCaseEngine:
                 findings.append(notice_finding)
 
         # --- Part 3: temporal reasoning + Part 5: cross-finding synthesis ---
-        claim_document_date = extract_document_own_date(claim_document_texts[0]) if claim_document_texts else None
+        # A case can have more than one CLAIM-role document row (e.g. a
+        # duplicate attachment still pending OCR with empty extracted_text
+        # alongside the real, ready copy) — blindly indexing [0] risks
+        # picking an empty one and silently losing this signal. Take the
+        # first text that actually yields a parseable date.
+        claim_document_date = next(
+            (d for text in claim_document_texts if (d := extract_document_own_date(text)) is not None), None
+        )
         temporal_issues = analyze_temporal_issues(
             earliest_interest_start=earliest_interest_start,
             latest_maturity_date=latest_parseable_maturity_date,

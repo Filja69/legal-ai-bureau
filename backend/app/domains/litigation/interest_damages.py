@@ -90,7 +90,7 @@ def _parse_wordy_date(raw: str) -> date | None:
         return None
 
 
-def _parse_ru_date(raw: str) -> date | None:
+def parse_ru_date(raw: str) -> date | None:
     return _parse_numeric_date(raw) or _parse_wordy_date(raw)
 
 
@@ -129,7 +129,7 @@ def extract_interest_claim(
         period_start is not None and earliest_payment_date is not None and period_start == earliest_payment_date
     )
 
-    parseable_maturities = [d for raw in contract_maturity_dates if (d := _parse_ru_date(raw)) is not None]
+    parseable_maturities = [d for raw in contract_maturity_dates if (d := parse_ru_date(raw)) is not None]
     latest_maturity = max(parseable_maturities) if parseable_maturities else None
 
     maturity_after_start: bool | None = None
@@ -249,8 +249,8 @@ def extract_interest_calculation_table(claim_text: str) -> InterestCalculationSu
     for m in _ROW_PATTERN.finditer(claim_text):
         matched_spans.append(m.span())
         start_raw, end_raw, days_raw, rate_raw, year_raw, amount_raw = m.groups()
-        period_start = _parse_ru_date(start_raw)
-        period_end = _parse_ru_date(end_raw)
+        period_start = parse_ru_date(start_raw)
+        period_end = parse_ru_date(end_raw)
         days = int(days_raw)
         amount = _normalize_amount(amount_raw)
         year_days = year_raw or "365"
@@ -322,7 +322,7 @@ def extract_interest_calculation_table(claim_text: str) -> InterestCalculationSu
 
     open_ended_match = _OPEN_ENDED_PERIOD.search(claim_text)
     interest_period_open_ended = open_ended_match is not None
-    open_ended_period_start = _parse_ru_date(open_ended_match.group(1)) if open_ended_match else None
+    open_ended_period_start = parse_ru_date(open_ended_match.group(1)) if open_ended_match else None
     if interest_period_open_ended:
         warnings.append(
             "The claim also demands interest continuing beyond the stated total, from "

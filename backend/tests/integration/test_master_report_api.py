@@ -293,6 +293,41 @@ _DEMAND_TEXT = (
 
 
 @pytest.mark.asyncio
+async def test_claim_filed_before_maturity_fires_even_with_an_empty_duplicate_claim_document(client, db_session):
+    """Regression: a case can have more than one CLAIM-role attachment (e.g.
+    a duplicate upload still pending OCR with empty extracted_text sitting
+    alongside the real, ready copy). Blindly reading claim_document_texts[0]
+    for the claim's own filing date risked picking the empty one and
+    silently losing the prematurity comparison — exactly the real case's
+    isk.pdf, which is attached twice.
+    """
+    _org, workspace = await make_org_and_workspace(db_session)
+    await db_session.commit()
+    headers = {"X-Workspace-Id": str(workspace.id)}
+
+    case_id = await _create_case(client, workspace.id, "Synthetic Prematurity Case")
+
+    empty_claim_id = await _upload_ready_document(client, workspace.id, "claim_ocr_pending.txt", "(no text extracted yet)")
+    await _attach(client, workspace.id, case_id, empty_claim_id, "claim")
+
+    real_claim_text = _CLAIM_TEXT + "\nПредставитель по доверенности\n01.06.2025"
+    real_claim_id = await _upload_ready_document(client, workspace.id, "claim_ready.txt", real_claim_text)
+    await _attach(client, workspace.id, case_id, real_claim_id, "claim")
+
+    contract_id = await _upload_ready_document(
+        client, workspace.id, "contract.txt", "Займодавец обязан вернуть заём в срок до 01.01.2030."
+    )
+    await _attach(client, workspace.id, case_id, contract_id, "contract")
+
+    analyze = await client.post(f"/api/v1/legal/cases/{case_id}/analyze", headers=headers)
+    assert analyze.status_code == 200
+
+    response = await client.get(f"/api/v1/legal/cases/{case_id}/master-report", headers=headers)
+    findings = response.json()["findings"]
+    assert any(f["id"].startswith("timing:claim_filed_before_maturity") for f in findings)
+
+
+@pytest.mark.asyncio
 async def test_master_report_surfaces_interest_table_notice_and_timing_synthesis(client, db_session):
     """Parts 2/3/4/5b end-to-end: a per-installment interest table, a
     returned pre-suit demand, and the resulting timing synthesis — a
