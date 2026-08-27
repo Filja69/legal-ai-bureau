@@ -174,6 +174,41 @@ async def test_master_report_one_pager_is_populated(client, db_session):
 
 
 @pytest.mark.asyncio
+async def test_money_at_stake_uses_claimed_total_not_broader_money_flow_total(client, db_session):
+    """Regression: a case can legitimately have MORE payment-order activity
+    than the specific claim in dispute (e.g. a second, later, unrelated loan
+    relationship also documented in the case). money_at_stake must show the
+    amount actually being sued for (the claim's own largest stated figure),
+    not the sum of every payment order in the case.
+    """
+    _org, workspace = await make_org_and_workspace(db_session)
+    await db_session.commit()
+    headers = {"X-Workspace-Id": str(workspace.id)}
+
+    case_id = await _create_case(client, workspace.id, "Synthetic Money At Stake Case")
+    claim_text = "Истец просит взыскать с Ответчика денежные средства в размере 4 400 000 руб."
+    claim_id = await _upload_ready_document(client, workspace.id, "claim.txt", claim_text)
+    await _attach(client, workspace.id, case_id, claim_id, "claim")
+
+    for number, pdate in (("101", "10.02.2025"), ("102", "01.05.2025"), ("103", "15.08.2025"), ("104", "20.11.2025")):
+        doc_id = await _upload_ready_document(client, workspace.id, f"payment_{number}.txt", _payment_text(number, "1100000-00", pdate))
+        await _attach(client, workspace.id, case_id, doc_id, "payment_document")
+
+    # An unrelated, later, separately-referenced payment not part of this claim.
+    unrelated_payment = _payment_text("999", "9000000-00", "01.03.2026").replace("от 05.02.2025г.", "от 15.01.2026г.")
+    unrelated_id = await _upload_ready_document(client, workspace.id, "payment_999.txt", unrelated_payment)
+    await _attach(client, workspace.id, case_id, unrelated_id, "payment_document")
+
+    analyze = await client.post(f"/api/v1/legal/cases/{case_id}/analyze", headers=headers)
+    assert analyze.status_code == 200
+
+    response = await client.get(f"/api/v1/legal/cases/{case_id}/master-report", headers=headers)
+    body = response.json()
+    assert body["money_flow"]["total_amount"] == "13400000.00"  # 4.4M + the unrelated 9M
+    assert body["one_pager"]["money_at_stake"] == "4400000.00"  # the claim's own stated amount, not the broader total
+
+
+@pytest.mark.asyncio
 async def test_master_report_court_scenarios_carry_strategic_label_not_probability(client, db_session):
     _org, workspace = await make_org_and_workspace(db_session)
     await db_session.commit()

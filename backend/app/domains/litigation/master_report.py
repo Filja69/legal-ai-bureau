@@ -656,14 +656,21 @@ def build_credibility_synthesis_finding(
     if not predating_relationships:
         return None
 
-    relationship_names = ", ".join(sorted({f.related_party_name for f in predating_relationships}))
+    # subject_name is the individual/entity holding the role (e.g. a
+    # director); related_party_name is who they're connected to. Reporting
+    # only related_party_name would read as "the company has a relationship
+    # with itself" — the subject is the actual fact worth surfacing.
+    relationship_descriptions = sorted(
+        {f"{f.subject_name} ({f.relationship_type.value} of {f.related_party_name})" for f in predating_relationships}
+    )
+    relationship_names = ", ".join(relationship_descriptions)
     type_labels = ", ".join(sorted(t.value for t in matched_types))
     return MasterFinding(
         id="synthesis:credibility",
         category=FindingCategory.SYNTHESIS,
         title="Documented relationship + repeated transfers may warrant scrutiny of the pleaded theory",
         statement=(
-            f"A documented relationship with {relationship_names} predates the transfers in this case. Combined "
+            f"A documented relationship — {relationship_names} — predates the transfers in this case. Combined "
             f"with a repeated, similarly-described transfer pattern ({pattern.description}), this may weaken a "
             f"purely accidental-transfer explanation and warrants examination of the parties' actual knowledge "
             f"and course of dealing. This does not by itself establish that the pleaded theory ('{type_labels}') is false."

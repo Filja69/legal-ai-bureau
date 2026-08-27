@@ -509,4 +509,8 @@ def test_credibility_synthesis_requires_relationship_predating_payments_plus_pat
     assert synthesis.category == FindingCategory.SYNTHESIS
     assert "does not by itself establish" in synthesis.statement
     assert "ООО Ромашка" in synthesis.statement
+    # Regression: must name the actual individual (subject), not just repeat
+    # the related company — "a documented relationship with ROMASHKA" alone
+    # reads as the company having a relationship with itself.
+    assert "Иванов И.И." in synthesis.statement
     assert synthesis.alternative_explanations

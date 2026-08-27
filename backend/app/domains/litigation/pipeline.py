@@ -984,7 +984,24 @@ class LitigationCaseEngine:
         opposing_party_questions = build_opposing_party_questions(findings)
         draft_response_structure = build_draft_response_structure(findings)
         next_best_action = result_summary.next_best_actions[0].action if result_summary.next_best_actions else None
-        one_pager = build_one_pager(findings, money_flow.total_amount, next_best_action)
+        # The amount actually being sued for (the largest figure stated in
+        # the claim document itself — a claim's total is always its largest
+        # line item, ahead of any sub-component like interest-only or a
+        # court-fee-only figure) is what a client one-pager's "money at
+        # stake" should show — NOT money_flow.total_amount, which sums
+        # every payment-order document in the case and can legitimately
+        # include amounts under a separate, later loan relationship that
+        # this specific claim never puts in dispute. Falls back to
+        # money_flow.total_amount only when no claim amount was extracted.
+        def _as_float(raw: str) -> float | None:
+            try:
+                return float(raw)
+            except ValueError:
+                return None
+
+        parseable_claim_amounts = [a for a in claim_amounts if _as_float(a) is not None]
+        money_at_stake = max(parseable_claim_amounts, key=float) if parseable_claim_amounts else money_flow.total_amount
+        one_pager = build_one_pager(findings, money_at_stake, next_best_action)
 
         return MasterCaseReport(
             one_pager=one_pager, case_map=case_map, findings=findings, burden_map=burden_map,
