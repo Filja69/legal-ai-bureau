@@ -14,6 +14,20 @@ class CaseCreate(BaseModel):
     matter_type: str | None = None
 
 
+class CaseUpdate(BaseModel):
+    """Partial update — every field optional, only fields the caller sets
+    are changed. Exists so case-setup mistakes (e.g. `client_name` pointing
+    at the wrong party) can be corrected without deleting and re-creating
+    the case and re-attaching every document.
+    """
+
+    title: str | None = None
+    client_name: str | None = None
+    counterparty_name: str | None = None
+    matter_type: str | None = None
+    status: CaseStatus | None = None
+
+
 class CaseOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

@@ -49,7 +49,7 @@ from app.repositories.case_party_repository import CasePartyRepository
 from app.repositories.case_related_litigation_repository import CaseRelatedLitigationRepository
 from app.repositories.case_repository import CaseRepository
 from app.repositories.document_repository import DocumentRepository
-from app.schemas.case import CaseCreate, CaseOut
+from app.schemas.case import CaseCreate, CaseOut, CaseUpdate
 from app.schemas.litigation import (
     BurdenItemOut,
     CaseAllegationOut,
@@ -158,6 +158,22 @@ async def get_case(
     session: AsyncSession = Depends(get_session),
 ) -> Case:
     return await _get_case_or_404(session, workspace_id, case_id)
+
+
+@router.patch("/cases/{case_id}", response_model=CaseOut)
+async def update_case(
+    case_id: uuid.UUID,
+    body: CaseUpdate,
+    workspace_id: uuid.UUID = Depends(get_workspace_id),
+    user=Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> Case:
+    case = await _get_case_or_404(session, workspace_id, case_id)
+    for field, value in body.model_dump(exclude_unset=True).items():
+        setattr(case, field, value)
+    await session.commit()
+    await session.refresh(case)
+    return case
 
 
 # --- Parties (brief §5) ---

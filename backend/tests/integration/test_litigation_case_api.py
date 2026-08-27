@@ -194,6 +194,46 @@ async def test_add_and_list_case_party(client, db_session):
 
 
 @pytest.mark.asyncio
+async def test_patch_case_updates_only_supplied_fields(client, db_session):
+    _org, workspace = await make_org_and_workspace(db_session)
+    await db_session.commit()
+    headers = {"X-Workspace-Id": str(workspace.id)}
+
+    create_response = await client.post(
+        "/api/v1/legal/cases",
+        json={"title": "Original Title", "client_name": "Wrong Client LLC", "counterparty_name": "Other Party LLC"},
+        headers=headers,
+    )
+    assert create_response.status_code == 201
+    case_id = create_response.json()["id"]
+
+    patch_response = await client.patch(
+        f"/api/v1/legal/cases/{case_id}", json={"client_name": "Corrected Client LLC"}, headers=headers
+    )
+    assert patch_response.status_code == 200
+    body = patch_response.json()
+    assert body["client_name"] == "Corrected Client LLC"
+    assert body["title"] == "Original Title"  # untouched field preserved
+    assert body["counterparty_name"] == "Other Party LLC"  # untouched field preserved
+
+    get_response = await client.get(f"/api/v1/legal/cases/{case_id}", headers=headers)
+    assert get_response.json()["client_name"] == "Corrected Client LLC"
+
+
+@pytest.mark.asyncio
+async def test_workspace_a_cannot_patch_workspace_b_case(client, db_session):
+    _org_a, workspace_a = await make_org_and_workspace(db_session, "Litigation Org PatchA")
+    _org_b, workspace_b = await make_org_and_workspace(db_session, "Litigation Org PatchB")
+    await db_session.commit()
+
+    case_id = await _create_case(client, workspace_a.id)
+    response = await client.patch(
+        f"/api/v1/legal/cases/{case_id}", json={"client_name": "Hijacked"}, headers={"X-Workspace-Id": str(workspace_b.id)}
+    )
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio
 async def test_workspace_a_cannot_attach_document_to_workspace_b_case(client, db_session):
     _org_a, workspace_a = await make_org_and_workspace(db_session, "Litigation Org A")
     _org_b, workspace_b = await make_org_and_workspace(db_session, "Litigation Org B")
