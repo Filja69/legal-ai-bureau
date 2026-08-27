@@ -446,7 +446,7 @@ export function CaseDetailView({ caseId }: { caseId: string }) {
                     <Badge tone="red">{con.contradiction_type.replace("_", " ")}</Badge>
                     <div className="mt-1.5 text-sm text-ink">{con.description}</div>
                     <div className="mt-1 text-xs text-muted">
-                      "{con.fact_a_statement}" vs "{con.fact_b_statement}"
+                      &quot;{con.fact_a_statement}&quot; vs &quot;{con.fact_b_statement}&quot;
                     </div>
                   </div>
                 ))}

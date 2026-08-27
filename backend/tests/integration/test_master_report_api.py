@@ -242,6 +242,64 @@ async def test_master_report_legal_kb_warning_present_when_kb_empty(client, db_s
     assert response.json()["legal_kb_warning"] is not None  # honest — test DB has no verified law
 
 
+_INTEREST_TABLE_TEXT = (
+    "\nРасчет процентов за пользование чужими денежными средствами:\n"
+    "1 100 000 15.02.2025 01.04.2025 45 | 12% | 365 16 273,97\n"
+)
+_DEMAND_TEXT = (
+    "Досудебное требование\n"
+    "Представитель ООО «Синтетик Плейнтифф»\n"
+    "по доверенности\n01.03.2025\n\n"
+    "Отчет сформирован официальным сайтом Почты России 15 марта 2025 в 09:00\n"
+    "Отчет об отслеживании отправления с почтовым идентификатором 30099999999999\n"
+    "05 марта 2025, 09:30 Вручено извещение 220000, Минск\n"
+    "20 марта 2025, 00:00 Срок хранения истек. Выслано обратно отправителю 220000, Минск\n"
+)
+
+
+@pytest.mark.asyncio
+async def test_master_report_surfaces_interest_table_notice_and_timing_synthesis(client, db_session):
+    """Parts 2/3/4/5b end-to-end: a per-installment interest table, a
+    returned pre-suit demand, and the resulting timing synthesis — a
+    deliberately different fact pattern (dates/amounts/company names) from
+    the real case this feature was benchmarked against.
+    """
+    _org, workspace = await make_org_and_workspace(db_session)
+    await db_session.commit()
+    headers = {"X-Workspace-Id": str(workspace.id)}
+
+    case_id = await _create_case(client, workspace.id, "Synthetic Timing Case")
+    claim_id = await _upload_ready_document(client, workspace.id, "claim.txt", _CLAIM_TEXT + _INTEREST_TABLE_TEXT)
+    await _attach(client, workspace.id, case_id, claim_id, "claim")
+    demand_id = await _upload_ready_document(client, workspace.id, "demand.txt", _DEMAND_TEXT)
+    await _attach(client, workspace.id, case_id, demand_id, "correspondence")
+
+    analyze = await client.post(f"/api/v1/legal/cases/{case_id}/analyze", headers=headers)
+    assert analyze.status_code == 200
+
+    response = await client.get(f"/api/v1/legal/cases/{case_id}/master-report", headers=headers)
+    assert response.status_code == 200
+    findings = response.json()["findings"]
+    categories = {f["category"] for f in findings}
+
+    assert "interest_calculation" in categories
+    table_finding = next(f for f in findings if f["id"] == "interest_calculation:table")
+    assert "1 per-installment row(s)" in table_finding["statement"]
+
+    notice_finding = next(f for f in findings if f["id"] == "notice_timeline:demand")
+    assert notice_finding["category"] == "procedural"
+    assert "returned" in notice_finding["statement"].lower()
+
+    timing_findings = [f for f in findings if f["category"] == "timing"]
+    assert len(timing_findings) >= 2
+    assert {f["id"].split(":")[1] for f in timing_findings} >= {"interest_before_demand", "demand_not_confirmed_received"}
+
+    synthesis_findings = [f for f in findings if f["category"] == "synthesis"]
+    assert any(f["id"] == "synthesis:timing" for f in synthesis_findings)
+    timing_synthesis = next(f for f in synthesis_findings if f["id"] == "synthesis:timing")
+    assert set(timing_synthesis["synthesizes"]) == {f["id"] for f in timing_findings}
+
+
 @pytest.mark.asyncio
 async def test_master_report_workspace_isolation(client, db_session):
     _org_a, workspace_a = await make_org_and_workspace(db_session, "Master Report Org A")

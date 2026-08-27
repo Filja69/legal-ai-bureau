@@ -150,6 +150,7 @@ describe("CaseDetailView", () => {
           response_to_counterargument: null, caveat: "A tension worth investigating, not a resolved inconsistency.",
           missing_evidence: [], recommended_action: null, verification_status: "document_supported",
           alternative_explanations: [], what_would_strengthen: [], what_would_weaken: [], legal_research_required: false,
+          synthesizes: [],
         },
       ],
       burden_map: [], court_scenarios: [], opposing_party_questions: [], draft_response_structure: [],

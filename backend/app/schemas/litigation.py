@@ -147,6 +147,15 @@ class CasePaymentOrderOut(BaseModel):
     excerpt: str
 
 
+class EvidenceSourceOut(BaseModel):
+    payment_order_id: uuid.UUID
+    document_id: uuid.UUID
+    document_title: str
+    page_number: int | None
+    excerpt: str
+    evidence_type: str
+
+
 class MoneyFlowTransactionOut(BaseModel):
     payment_order_id: uuid.UUID
     document_id: uuid.UUID
@@ -155,6 +164,10 @@ class MoneyFlowTransactionOut(BaseModel):
     payer: str | None
     recipient: str | None
     referenced_contract_date: date | None
+    evidence_sources: list[EvidenceSourceOut]
+    matched_signals: list[str]
+    needs_review: bool
+    review_reason: str | None
 
 
 class MoneyFlowOut(BaseModel):
@@ -357,6 +370,7 @@ class MasterFindingOut(BaseModel):
     what_would_strengthen: list[str]
     what_would_weaken: list[str]
     legal_research_required: bool
+    synthesizes: list[str] = []
 
 
 class CaseOnePagerOut(BaseModel):

@@ -356,3 +356,157 @@ def test_master_finding_new_fields_default_empty():
     assert f.what_would_strengthen == []
     assert f.what_would_weaken == []
     assert f.legal_research_required is False
+    assert f.synthesizes == []
+
+
+# --- Interest calculation table finding (Part 2) ---
+
+
+def test_interest_table_finding_omitted_when_no_rows():
+    from app.domains.litigation.interest_damages import extract_interest_calculation_table
+    from app.domains.litigation.master_report import build_interest_table_finding
+
+    summary = extract_interest_calculation_table("no table here")
+    assert build_interest_table_finding(summary) is None
+
+
+def test_interest_table_finding_flags_arithmetic_mismatches():
+    from app.domains.litigation.interest_damages import extract_interest_calculation_table
+    from app.domains.litigation.master_report import build_interest_table_finding
+
+    # principal * rate/100 * days/365 = 500000 * .16 * 42/365 = 9205.48 (matches)
+    # a second row with a deliberately wrong claimed amount (mismatch)
+    text = (
+        "500 000 01.02.2025 15.03.2025 42 | 16% | 365 9 205,48\n"
+        "300 000 16.03.2025 30.04.2025 45 | 17% | 365 999 999,00\n"
+    )
+    summary = extract_interest_calculation_table(text)
+    finding = build_interest_table_finding(summary)
+    assert finding is not None
+    assert finding.category == FindingCategory.INTEREST_CALCULATION
+    assert finding.strength == "HIGH"
+    assert "do not reproduce the claimed row amount" in finding.caveat
+    assert finding.legal_research_required is True
+
+
+# --- Notice timeline finding (Part 4) ---
+
+
+def test_notice_timeline_finding_omitted_when_no_tracking_report():
+    from app.domains.litigation.master_report import build_notice_timeline_finding
+    from app.domains.litigation.notice_timeline import extract_notice_timeline
+
+    result = extract_notice_timeline("Досудебное требование направлено 01.01.2025.")
+    assert build_notice_timeline_finding(result) is None
+
+
+def test_notice_timeline_finding_flags_returned_demand():
+    from app.domains.litigation.master_report import build_notice_timeline_finding
+    from app.domains.litigation.notice_timeline import extract_notice_timeline
+
+    text = (
+        "Представитель по доверенности\n01.01.2025\n\n"
+        "Отчет сформирован официальным сайтом Почты России 10 марта 2025 в 09:00\n"
+        "Отчет об отслеживании отправления с почтовым идентификатором 30099999999999\n"
+        "05 марта 2025, 09:30 Вручено извещение 220000, Минск\n"
+        "20 марта 2025, 00:00 Срок хранения истек. Выслано обратно отправителю 220000, Минск\n"
+    )
+    result = extract_notice_timeline(text)
+    finding = build_notice_timeline_finding(result)
+    assert finding is not None
+    assert finding.category == FindingCategory.PROCEDURAL
+    assert finding.strength == "HIGH"
+    assert finding.legal_research_required is True
+
+
+# --- Temporal reasoning findings + synthesis (Part 3 / Part 5b) ---
+
+
+def test_temporal_issue_findings_build_one_per_issue():
+    from app.domains.litigation.master_report import build_temporal_issue_findings
+    from app.domains.litigation.temporal_reasoning import TemporalIssue
+
+    issues = [
+        TemporalIssue("interest_before_demand", {"interest_start": date(2025, 1, 1), "demand_date": date(2025, 3, 1)}),
+        TemporalIssue("interest_before_maturity", {"interest_start": date(2025, 1, 1), "maturity": date(2025, 6, 1)}),
+    ]
+    findings = build_temporal_issue_findings(issues)
+    assert len(findings) == 2
+    assert all(f.category == FindingCategory.TIMING for f in findings)
+    assert "2025-01-01" in findings[0].statement
+
+
+def test_timing_synthesis_requires_two_or_more_findings():
+    from app.domains.litigation.master_report import build_temporal_issue_findings, build_timing_synthesis_finding
+    from app.domains.litigation.temporal_reasoning import TemporalIssue
+
+    one_issue = build_temporal_issue_findings(
+        [TemporalIssue("interest_before_demand", {"interest_start": date(2025, 1, 1), "demand_date": date(2025, 3, 1)})]
+    )
+    assert build_timing_synthesis_finding(one_issue) is None
+
+    two_issues = build_temporal_issue_findings(
+        [
+            TemporalIssue("interest_before_demand", {"interest_start": date(2025, 1, 1), "demand_date": date(2025, 3, 1)}),
+            TemporalIssue("interest_before_maturity", {"interest_start": date(2025, 1, 1), "maturity": date(2025, 6, 1)}),
+        ]
+    )
+    synthesis = build_timing_synthesis_finding(two_issues)
+    assert synthesis is not None
+    assert synthesis.category == FindingCategory.SYNTHESIS
+    assert synthesis.synthesizes == [f.id for f in two_issues]
+
+
+# --- Credibility synthesis (Part 5a worked example) ---
+
+
+def test_credibility_synthesis_requires_relationship_predating_payments_plus_pattern_plus_allegation():
+    from app.domains.litigation.case_relationships import PartyRelationshipFinding
+    from app.domains.litigation.conduct_patterns import PaymentPatternResult
+    from app.domains.litigation.master_report import build_credibility_synthesis_finding
+    from app.models.matters import RelationshipType, RelationshipVerificationStatus
+
+    significant_pattern = PaymentPatternResult(
+        transaction_count=4, span_days=200, distinct_payers=1, distinct_recipients=1, is_significant=True,
+        description="4 similarly-described transfers.",
+    )
+    predating_relationship = PartyRelationshipFinding(
+        subject_name="Иванов И.И.",
+        related_party_name="ООО Ромашка",
+        relationship_type=RelationshipType.DIRECTOR,
+        relationship_start=date(2020, 1, 1),
+        relationship_end=None,
+        timing_note="",
+        why_it_may_matter="",
+        verification_status=RelationshipVerificationStatus.UNVERIFIED,
+    )
+
+    # missing allegation type -> no synthesis
+    assert (
+        build_credibility_synthesis_finding(
+            {AllegationType.UNJUST_ENRICHMENT}, significant_pattern, [predating_relationship], date(2025, 1, 1)
+        )
+        is None
+    )
+
+    # relationship starting AFTER the earliest payment -> not "predating" -> no synthesis
+    later_relationship = PartyRelationshipFinding(
+        subject_name="Иванов И.И.", related_party_name="ООО Ромашка", relationship_type=RelationshipType.DIRECTOR,
+        relationship_start=date(2026, 1, 1), relationship_end=None, timing_note="", why_it_may_matter="",
+        verification_status=RelationshipVerificationStatus.UNVERIFIED,
+    )
+    assert (
+        build_credibility_synthesis_finding(
+            {AllegationType.PAYMENT_BY_MISTAKE}, significant_pattern, [later_relationship], date(2025, 1, 1)
+        )
+        is None
+    )
+
+    synthesis = build_credibility_synthesis_finding(
+        {AllegationType.PAYMENT_BY_MISTAKE}, significant_pattern, [predating_relationship], date(2025, 1, 1)
+    )
+    assert synthesis is not None
+    assert synthesis.category == FindingCategory.SYNTHESIS
+    assert "does not by itself establish" in synthesis.statement
+    assert "ООО Ромашка" in synthesis.statement
+    assert synthesis.alternative_explanations

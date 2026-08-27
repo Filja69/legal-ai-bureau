@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import uuid
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 
 import structlog
@@ -40,7 +40,7 @@ from app.domains.litigation.course_of_dealing import detect_course_of_dealing
 from app.domains.litigation.evidence_matrix import EvidenceMatrixRow, build_evidence_matrix
 from app.domains.litigation.fact_dedup import CanonicalFact, deduplicate_facts
 from app.domains.litigation.fact_extractor import FactEvidenceCandidate, extract_fact_candidates
-from app.domains.litigation.interest_damages import extract_interest_claim
+from app.domains.litigation.interest_damages import extract_interest_calculation_table, extract_interest_claim
 from app.domains.litigation.master_report import (
     MasterCaseReport,
     RelatedLitigationInput,
@@ -52,19 +52,26 @@ from app.domains.litigation.master_report import (
     build_corporate_relationship_findings,
     build_course_of_dealing_finding,
     build_court_scenarios,
+    build_credibility_synthesis_finding,
     build_draft_response_structure,
     build_evidence_gap_findings,
     build_interest_damages_finding,
+    build_interest_table_finding,
+    build_notice_timeline_finding,
     build_one_pager,
     build_opposing_party_questions,
     build_payment_pattern_finding,
     build_related_litigation_findings,
+    build_temporal_issue_findings,
     build_theory_vs_conduct_finding,
+    build_timing_synthesis_finding,
     rank_findings,
 )
-from app.domains.litigation.payment_dedup import deduplicate_payment_orders
+from app.domains.litigation.notice_timeline import extract_notice_timeline
 from app.domains.litigation.payment_extractor import extract_payment_order_candidate
+from app.domains.litigation.temporal_reasoning import analyze_temporal_issues, extract_document_own_date
 from app.domains.litigation.timeline_builder import build_timeline
+from app.domains.litigation.transaction_identity import EvidenceSource, build_canonical_transactions
 from app.models.legal_knowledge import LawVersion
 from app.models.matters import (
     Case,
@@ -95,6 +102,13 @@ logger = structlog.get_logger(__name__)
 
 @dataclass
 class MoneyFlowTransaction:
+    """One CANONICAL underlying transaction — see transaction_identity.py.
+    `payment_order_id`/`document_id` remain the representative (most-
+    complete) row's identifiers for backward compatibility; every row that
+    corroborates this same transaction (a bank statement, a register entry,
+    etc.) is preserved in `evidence_sources`, never discarded.
+    """
+
     payment_order_id: uuid.UUID
     document_id: uuid.UUID
     payment_date: date | None
@@ -102,6 +116,10 @@ class MoneyFlowTransaction:
     payer: str | None
     recipient: str | None
     referenced_contract_date: date | None
+    evidence_sources: list[EvidenceSource] = field(default_factory=list)
+    matched_signals: list[str] = field(default_factory=list)
+    needs_review: bool = False
+    review_reason: str | None = None
 
 
 @dataclass
@@ -303,45 +321,65 @@ class LitigationCaseEngine:
         return detect_claim_vs_evidence_contradictions(allegation_inputs, payment_inputs)
 
     async def get_money_flow(self, case: Case) -> MoneyFlowSummary:
-        """Computed at read time from CasePaymentOrder rows — a total and a
+        """Computed at read time from CasePaymentOrder rows, assembled into
+        CANONICAL transactions (transaction_identity.py) — a total and a
         grouping of referenced contract dates/numbers ONLY as a count of how
         many payments cite each one. Deliberately does not merge same-dated
         payments into "one obligation" — see payment_extractor.py's module
         docstring on why that's a candidate-linkage question, not a fact.
 
-        Rows are deduplicated first (payment_dedup.py) — more than one
-        document (e.g. a payment order and a corroborating bank statement)
-        can describe the exact same real transfer, and without this the
-        total would double-count every corroborated payment.
+        More than one document (a payment order, a corroborating bank
+        statement, a register entry) can describe the exact same real
+        transfer — every one is preserved as evidence on its canonical
+        transaction, never discarded; see transaction_identity.py for the
+        multi-signal matching rule and its explicit refusal to merge on
+        amount alone or amount+referenced_contract_date alone.
         """
         payment_orders_raw = (
             await self._session.execute(
                 select(CasePaymentOrder).where(CasePaymentOrder.case_id == case.id).order_by(CasePaymentOrder.payment_date)
             )
         ).scalars().all()
-        payment_orders = sorted(
-            deduplicate_payment_orders(list(payment_orders_raw)),
-            key=lambda p: (p.payment_date is None, p.payment_date or date.min),
+
+        document_ids = {p.document_id for p in payment_orders_raw}
+        document_titles: dict[uuid.UUID, str] = {}
+        for document_id in document_ids:
+            document = await self._session.get(Document, document_id)
+            if document is not None:
+                document_titles[document_id] = document.title
+
+        canonical = sorted(
+            build_canonical_transactions(list(payment_orders_raw), document_titles),
+            key=lambda c: (c.transaction_date is None, c.transaction_date or date.min),
         )
 
         transactions = [
             MoneyFlowTransaction(
-                payment_order_id=p.id, document_id=p.document_id, payment_date=p.payment_date, amount=p.amount,
-                payer=p.payer, recipient=p.recipient, referenced_contract_date=p.referenced_contract_date,
+                payment_order_id=uuid.UUID(c.id), document_id=c.representative_document_id,
+                payment_date=c.transaction_date, amount=c.amount, payer=c.payer, recipient=c.recipient,
+                referenced_contract_date=c.referenced_contract_date,
+                evidence_sources=[
+                    EvidenceSource(
+                        payment_order_id=e.payment_order_id, document_id=e.document_id, document_title=e.document_title,
+                        page_number=e.page_number, excerpt=e.excerpt, evidence_type=e.evidence_type,
+                    )
+                    for e in c.evidence_sources
+                ],
+                matched_signals=c.matched_signals, needs_review=c.needs_review, review_reason=c.review_reason,
             )
-            for p in payment_orders
+            for c in canonical
         ]
 
-        total = sum((float(p.amount) for p in payment_orders if p.amount is not None), 0.0)
+        total = sum((float(c.amount) for c in canonical if c.amount is not None), 0.0)
 
         dates: dict[str, int] = {}
         numbers: dict[str, int] = {}
-        for p in payment_orders:
-            if p.referenced_contract_date is not None:
-                key = p.referenced_contract_date.isoformat()
+        for c in canonical:
+            if c.referenced_contract_date is not None:
+                key = c.referenced_contract_date.isoformat()
                 dates[key] = dates.get(key, 0) + 1
-            if p.referenced_contract_number is not None:
-                numbers[p.referenced_contract_number] = numbers.get(p.referenced_contract_number, 0) + 1
+            if c.referenced_contract_number is not None:
+                numbers[c.referenced_contract_number] = numbers.get(c.referenced_contract_number, 0) + 1
 
         return MoneyFlowSummary(
             transaction_count=len(transactions), transactions=transactions, total_amount=f"{total:.2f}",
@@ -762,6 +800,24 @@ class LitigationCaseEngine:
                 results.append((document.id, document.title, document.extracted_text or ""))
         return results
 
+    async def _correspondence_document_texts(self, case: Case) -> list[tuple[uuid.UUID, str, str]]:
+        """(document_id, title, extracted_text) for every CORRESPONDENCE-role
+        document — a pre-suit demand letter (with any attached delivery-
+        tracking report) is generically correspondence between the parties,
+        same fetch shape as `_claim_document_texts`.
+        """
+        correspondence_case_documents = (
+            await self._session.execute(
+                select(CaseDocument).where(CaseDocument.case_id == case.id, CaseDocument.role == CaseDocumentRole.CORRESPONDENCE)
+            )
+        ).scalars().all()
+        results: list[tuple[uuid.UUID, str, str]] = []
+        for cd in correspondence_case_documents:
+            document = await self._session.get(Document, cd.document_id)
+            if document is not None:
+                results.append((document.id, document.title, document.extracted_text or ""))
+        return results
+
     async def get_master_report(self, case: Case) -> MasterCaseReport:
         """Top-level synthesis — zero LLM calls, everything below is a
         template rule keyed off already-persisted structured data. See
@@ -855,13 +911,66 @@ class LitigationCaseEngine:
         )
         contract_maturity_dates = [d for terms in contract_version_matrix for d in terms.maturity_dates]
         interest_finding = None
+        latest_parseable_maturity_date = None
         for claim_text in claim_document_texts:
             interest_claim = extract_interest_claim(claim_text, earliest_payment_date, contract_maturity_dates)
             if interest_claim is not None:
                 interest_finding = build_interest_damages_finding(interest_claim)
+                latest_parseable_maturity_date = interest_claim.latest_parseable_maturity_date
                 break
         if interest_finding is not None:
             findings.append(interest_finding)
+
+        # --- Part 2: structured per-installment interest table ---
+        earliest_interest_start = None
+        for claim_text in claim_document_texts:
+            interest_table = extract_interest_calculation_table(claim_text)
+            if interest_table.row_count > 0:
+                earliest_interest_start = interest_table.earliest_interest_start
+                interest_table_finding = build_interest_table_finding(interest_table)
+                if interest_table_finding is not None:
+                    findings.append(interest_table_finding)
+                break
+        if earliest_interest_start is None and claim_document_texts:
+            first_claim = extract_interest_claim(claim_document_texts[0], earliest_payment_date, contract_maturity_dates)
+            earliest_interest_start = first_claim.period_start if first_claim is not None else None
+
+        # --- Part 4: demand/notice delivery timeline ---
+        correspondence_texts = [text for _id, _title, text in await self._correspondence_document_texts(case)]
+        notice_result = None
+        for text in correspondence_texts:
+            candidate = extract_notice_timeline(text)
+            if candidate.tracking_report_present:
+                notice_result = candidate
+                break
+        if notice_result is None and correspondence_texts:
+            notice_result = extract_notice_timeline(correspondence_texts[0])
+        if notice_result is not None:
+            notice_finding = build_notice_timeline_finding(notice_result)
+            if notice_finding is not None:
+                findings.append(notice_finding)
+
+        # --- Part 3: temporal reasoning + Part 5: cross-finding synthesis ---
+        claim_document_date = extract_document_own_date(claim_document_texts[0]) if claim_document_texts else None
+        temporal_issues = analyze_temporal_issues(
+            earliest_interest_start=earliest_interest_start,
+            latest_maturity_date=latest_parseable_maturity_date,
+            demand_date=notice_result.demand_date if notice_result is not None else None,
+            demand_tracking_present=notice_result.tracking_report_present if notice_result is not None else False,
+            demand_final_status=notice_result.final_status if notice_result is not None else "UNKNOWN",
+            claim_document_date=claim_document_date,
+        )
+        temporal_findings = build_temporal_issue_findings(temporal_issues)
+        findings.extend(temporal_findings)
+        timing_synthesis = build_timing_synthesis_finding(temporal_findings)
+        if timing_synthesis is not None:
+            findings.append(timing_synthesis)
+
+        credibility_synthesis = build_credibility_synthesis_finding(
+            allegation_types_present, payment_pattern, party_relationship_findings, earliest_payment_date
+        )
+        if credibility_synthesis is not None:
+            findings.append(credibility_synthesis)
 
         findings = rank_findings(findings)
 

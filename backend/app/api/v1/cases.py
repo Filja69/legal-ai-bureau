@@ -26,7 +26,7 @@ from app.api.v1.research import ResearchRequest, research
 from app.db.session import get_session
 from app.domains.legal_research.models import ResearchMode
 from app.domains.litigation.case_relationships import build_related_litigation_note
-from app.domains.litigation.pipeline import LitigationCaseEngine
+from app.domains.litigation.pipeline import LitigationCaseEngine, MoneyFlowSummary
 from app.models.matters import (
     Case,
     CaseAllegation,
@@ -77,6 +77,7 @@ from app.schemas.litigation import (
     CourtScenarioOut,
     DraftResponseSectionOut,
     EvidenceMatrixRowOut,
+    EvidenceSourceOut,
     KeyFindingOut,
     MasterCaseReportOut,
     MasterFindingOut,
@@ -97,6 +98,34 @@ async def _get_case_or_404(session: AsyncSession, workspace_id: uuid.UUID, case_
     if case is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Case not found in this workspace")
     return case
+
+
+def _to_money_flow_out(summary: MoneyFlowSummary) -> MoneyFlowOut:
+    """Shared mapping — MoneyFlowOut is built from 3 different call sites
+    (the standalone endpoint, Result Summary, Master Report); factored out
+    once so a new field never accidentally lands in only some of them.
+    """
+    return MoneyFlowOut(
+        transaction_count=summary.transaction_count,
+        transactions=[
+            MoneyFlowTransactionOut(
+                payment_order_id=t.payment_order_id, document_id=t.document_id, payment_date=t.payment_date,
+                amount=t.amount, payer=t.payer, recipient=t.recipient, referenced_contract_date=t.referenced_contract_date,
+                evidence_sources=[
+                    EvidenceSourceOut(
+                        payment_order_id=e.payment_order_id, document_id=e.document_id, document_title=e.document_title,
+                        page_number=e.page_number, excerpt=e.excerpt, evidence_type=e.evidence_type,
+                    )
+                    for e in t.evidence_sources
+                ],
+                matched_signals=t.matched_signals, needs_review=t.needs_review, review_reason=t.review_reason,
+            )
+            for t in summary.transactions
+        ],
+        total_amount=summary.total_amount,
+        referenced_contract_dates=summary.referenced_contract_dates,
+        referenced_contract_numbers=summary.referenced_contract_numbers,
+    )
 
 
 @router.get("/cases", response_model=list[CaseOut])
@@ -375,19 +404,7 @@ async def get_case_money_flow(
     case = await _get_case_or_404(session, workspace_id, case_id)
     engine = LitigationCaseEngine(session)
     summary = await engine.get_money_flow(case)
-    return MoneyFlowOut(
-        transaction_count=summary.transaction_count,
-        transactions=[
-            MoneyFlowTransactionOut(
-                payment_order_id=t.payment_order_id, document_id=t.document_id, payment_date=t.payment_date,
-                amount=t.amount, payer=t.payer, recipient=t.recipient, referenced_contract_date=t.referenced_contract_date,
-            )
-            for t in summary.transactions
-        ],
-        total_amount=summary.total_amount,
-        referenced_contract_dates=summary.referenced_contract_dates,
-        referenced_contract_numbers=summary.referenced_contract_numbers,
-    )
+    return _to_money_flow_out(summary)
 
 
 # --- Claim vs. Evidence (E2 — computed, never persisted) ---
@@ -643,19 +660,7 @@ async def get_case_result_summary(
             )
             for f in summary.key_findings
         ],
-        money_flow=MoneyFlowOut(
-            transaction_count=summary.money_flow.transaction_count,
-            transactions=[
-                MoneyFlowTransactionOut(
-                    payment_order_id=t.payment_order_id, document_id=t.document_id, payment_date=t.payment_date,
-                    amount=t.amount, payer=t.payer, recipient=t.recipient, referenced_contract_date=t.referenced_contract_date,
-                )
-                for t in summary.money_flow.transactions
-            ],
-            total_amount=summary.money_flow.total_amount,
-            referenced_contract_dates=summary.money_flow.referenced_contract_dates,
-            referenced_contract_numbers=summary.money_flow.referenced_contract_numbers,
-        ),
+        money_flow=_to_money_flow_out(summary.money_flow),
         what_this_may_mean=summary.what_this_may_mean,
         missing_critical_evidence=[
             MissingEvidenceItemOut(
@@ -861,6 +866,7 @@ async def get_case_master_report(
                 verification_status=f.verification_status,
                 alternative_explanations=f.alternative_explanations, what_would_strengthen=f.what_would_strengthen,
                 what_would_weaken=f.what_would_weaken, legal_research_required=f.legal_research_required,
+                synthesizes=f.synthesizes,
             )
             for f in report.findings
         ],
@@ -893,18 +899,7 @@ async def get_case_master_report(
             )
             for t in report.contract_version_matrix
         ],
-        money_flow=MoneyFlowOut(
-            transaction_count=report.money_flow.transaction_count,
-            transactions=[
-                MoneyFlowTransactionOut(
-                    payment_order_id=t.payment_order_id, document_id=t.document_id, payment_date=t.payment_date,
-                    amount=t.amount, payer=t.payer, recipient=t.recipient, referenced_contract_date=t.referenced_contract_date,
-                )
-                for t in report.money_flow.transactions
-            ],
-            total_amount=report.money_flow.total_amount, referenced_contract_dates=report.money_flow.referenced_contract_dates,
-            referenced_contract_numbers=report.money_flow.referenced_contract_numbers,
-        ),
+        money_flow=_to_money_flow_out(report.money_flow),
         legal_kb_warning=report.legal_kb_warning,
     )
 

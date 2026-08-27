@@ -220,7 +220,7 @@ export interface CaseRelatedLitigation {
 export type FindingCategory =
   | "claim_contradiction" | "payment_pattern" | "contract_formation" | "contract_mismatch" | "course_of_dealing"
   | "party_conduct" | "interest_calculation" | "procedural" | "corporate_relationship" | "related_litigation"
-  | "evidence_gap" | "legal_argument" | "risk" | "other";
+  | "evidence_gap" | "legal_argument" | "risk" | "timing" | "synthesis" | "other";
 
 export interface MasterFinding {
   id: string;
@@ -248,6 +248,7 @@ export interface MasterFinding {
   what_would_strengthen: string[];
   what_would_weaken: string[];
   legal_research_required: boolean;
+  synthesizes: string[];
 }
 
 export interface CaseOnePager {

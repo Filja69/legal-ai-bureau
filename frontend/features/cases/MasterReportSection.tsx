@@ -122,6 +122,11 @@ export function MasterReportSection({
                       Требуется правовое исследование
                     </Badge>
                   ),
+                  f.category === "synthesis" && f.synthesizes.length > 0 && (
+                    <Badge key="synthesis" tone="blue">
+                      Объединяет {f.synthesizes.length} вывод(ов)
+                    </Badge>
+                  ),
                 ]}
               >
                 {f.statement}

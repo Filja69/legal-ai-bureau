@@ -31,15 +31,18 @@ from __future__ import annotations
 import enum
 import uuid
 from dataclasses import dataclass, field
+from datetime import date
 from typing import TYPE_CHECKING
 
-from app.domains.litigation.case_relationships import PartyRelationshipFinding
+from app.domains.litigation.case_relationships import PartyRelationshipFinding, classify_relationship_timing
 from app.domains.litigation.case_result_summary import MissingEvidenceItem
 from app.domains.litigation.conduct_patterns import PaymentPatternResult
 from app.domains.litigation.contract_forensics import ContractVersionTerms
 from app.domains.litigation.contradiction_detector import ClaimEvidenceContradiction, ClaimTheoryTension
 from app.domains.litigation.course_of_dealing import CourseOfDealingResult
-from app.domains.litigation.interest_damages import InterestClaimResult
+from app.domains.litigation.interest_damages import InterestCalculationSummary, InterestClaimResult
+from app.domains.litigation.notice_timeline import NoticeTimelineResult
+from app.domains.litigation.temporal_reasoning import TemporalIssue
 from app.models.matters import AllegationType
 
 if TYPE_CHECKING:
@@ -60,6 +63,8 @@ class FindingCategory(str, enum.Enum):
     EVIDENCE_GAP = "evidence_gap"
     LEGAL_ARGUMENT = "legal_argument"
     RISK = "risk"
+    TIMING = "timing"
+    SYNTHESIS = "synthesis"
     OTHER = "other"
 
 
@@ -93,6 +98,10 @@ class MasterFinding:
     what_would_strengthen: list[str] = field(default_factory=list)
     what_would_weaken: list[str] = field(default_factory=list)
     legal_research_required: bool = False
+    # Finding ids (MasterFinding.id) this finding cross-links into one
+    # synthesized observation — empty for an ordinary standalone finding;
+    # populated only for a FindingCategory.SYNTHESIS finding (Part 5).
+    synthesizes: list[str] = field(default_factory=list)
 
 
 def _allegation_author_side(our_side_role: str) -> tuple[str, str]:
@@ -458,6 +467,230 @@ def build_interest_damages_finding(result: InterestClaimResult | None) -> Master
         what_would_weaken=["A contractual provision or verified legal rule confirming interest properly accrues from the transfer date."],
         recommended_action="Obtain verified legal research on the applicable accrual start date before relying on either interpretation.",
         legal_research_required=legal_research_required,
+    )
+
+
+def build_interest_table_finding(summary: InterestCalculationSummary) -> MasterFinding | None:
+    """Surfaces the structured per-installment breakdown (Part 2) as its own
+    finding, distinct from `build_interest_damages_finding`'s single-period
+    reading — present together when a claim uses a per-installment table
+    rather than one flat period. The claimed total is presented as the
+    CLAIMANT's own stated figure (CLAIMANT_CALCULATION), never as a Legal-AI
+    computed conclusion; per-row `arithmetic_check` results are an internal
+    consistency check only, not a legal entitlement determination.
+    """
+    if summary.row_count == 0:
+        return None
+    mismatches = [r for r in summary.rows if r.arithmetic_check == "does_not_match_claimed"]
+    statement = (
+        f"The claim computes interest/damages across {summary.row_count} per-installment row(s)"
+        f"{f', totaling {summary.claimed_interest_total} rub. as stated by the claimant' if summary.claimed_interest_total else ''}."
+    )
+    if summary.unparsed_row_count:
+        statement += f" {summary.unparsed_row_count} additional row(s) could not be reliably parsed from the source document."
+    caveats = [
+        "This is the claimant's own stated calculation (CLAIMANT_CALCULATION), reproduced for review — not a "
+        "Legal-AI determination of the legally correct amount (LEGAL_ENTITLEMENT requires verified legal review).",
+    ]
+    if mismatches:
+        caveats.append(
+            f"{len(mismatches)} row(s) where principal/rate/days were all identified do not reproduce the claimed "
+            "row amount by simple arithmetic (LEGAL_AI_ARITHMETIC_CHECK) — worth independent verification."
+        )
+    return MasterFinding(
+        id="interest_calculation:table",
+        category=FindingCategory.INTEREST_CALCULATION,
+        title="Per-installment interest/damages calculation",
+        statement=statement,
+        helps_side="neutral", hurts_side="neutral",
+        strength="HIGH" if mismatches else "MEDIUM",
+        confidence=(
+            f"Deterministic extraction: {summary.row_count} row(s) parsed, {summary.unparsed_row_count} unparsed. "
+            "See calculation_warnings for data-quality detail."
+        ),
+        legal_significance=(
+            "A per-installment calculation should be checked row-by-row against the underlying payment evidence "
+            "and applicable rate history."
+        ),
+        caveat=" ".join(caveats),
+        missing_evidence=(
+            ["Legible, unredacted copy of the interest calculation table for the rows this system could not parse."]
+            if summary.unparsed_row_count
+            else []
+        ),
+        recommended_action="Independently verify each row's principal, period, and rate against the underlying payment evidence.",
+        legal_research_required=True,
+    )
+
+
+def build_notice_timeline_finding(result: NoticeTimelineResult) -> MasterFinding | None:
+    if not result.tracking_report_present or result.final_status == "UNKNOWN":
+        return None
+    strength = "HIGH" if result.final_status in ("RETURNED", "NOTICE_LEFT") else "MEDIUM"
+    return MasterFinding(
+        id="notice_timeline:demand",
+        category=FindingCategory.PROCEDURAL,
+        title="Pre-suit demand delivery outcome",
+        statement=result.final_status_explanation,
+        helps_side="neutral", hurts_side="neutral", strength=strength,
+        confidence=(
+            f"Deterministic classification of a Russian Post tracking report "
+            f"(tracking number {result.tracking_number or 'not identified'})."
+        ),
+        legal_significance=(
+            "Whether pre-suit demand/notice was actually received may be relevant to compliance with any "
+            "applicable pre-suit notice requirement and to when the addressee is deemed to have learned of the claim."
+        ),
+        caveat="Non-delivery of a demand letter does not by itself defeat a claim that does not require pre-suit notice as a condition.",
+        legal_research_required=True,
+    )
+
+
+_TEMPORAL_ISSUE_TEMPLATES: dict[str, tuple[str, str, str]] = {
+    # issue_type -> (title, statement_template, legal_significance)
+    "interest_before_demand": (
+        "Claimed interest accrual predates the demand letter",
+        "The claimed interest period begins ({interest_start}) before the pre-suit demand letter ({demand_date}).",
+        "Whether interest may properly accrue before any demand was made — as opposed to only from a demand or "
+        "later default date — is a legal question this system does not resolve.",
+    ),
+    "demand_not_confirmed_received": (
+        "Pre-suit demand not confirmed received",
+        "The pre-suit demand letter dated {demand_date} does not, on this record, appear to have been "
+        "confirmed as received by the addressee.",
+        "May be relevant to whether pre-suit notice requirements were satisfied and to when the addressee is "
+        "deemed to have known of the claim — this does not by itself resolve that legal question.",
+    ),
+    "interest_before_maturity": (
+        "Claimed interest accrual predates contract maturity",
+        "The claimed interest period begins ({interest_start}) before a contractual maturity/return date found "
+        "in the record ({maturity}).",
+        "Whether interest may properly run before a loan's own maturity date, as opposed to only from a later "
+        "default date, is a legal question this system does not resolve.",
+    ),
+    "claim_filed_before_maturity": (
+        "Claim filed before contract maturity",
+        "The claim document's own stated date ({claim_date}) precedes a contractual maturity/return date found "
+        "in the record ({maturity}).",
+        "May raise a prematurity issue, subject to contract validity, any acceleration provisions, termination "
+        "rights, and applicable law — this system does not resolve whether the claim was in fact premature.",
+    ),
+}
+
+
+def build_temporal_issue_findings(issues: list[TemporalIssue]) -> list[MasterFinding]:
+    findings = []
+    for i, issue in enumerate(issues):
+        template = _TEMPORAL_ISSUE_TEMPLATES.get(issue.issue_type)
+        if template is None:
+            continue
+        title, statement_template, legal_significance = template
+        date_kwargs = {k: v.isoformat() for k, v in issue.dates.items()}
+        findings.append(
+            MasterFinding(
+                id=f"timing:{issue.issue_type}:{i}",
+                category=FindingCategory.TIMING,
+                title=title,
+                statement=statement_template.format(**date_kwargs),
+                helps_side="neutral", hurts_side="neutral", strength="HIGH",
+                confidence="Deterministic date comparison over already-extracted case dates.",
+                legal_significance=legal_significance,
+                caveat="A timing observation alone does not resolve any legal question — see legal_significance.",
+                legal_research_required=True,
+            )
+        )
+    return findings
+
+
+def build_timing_synthesis_finding(temporal_findings: list[MasterFinding]) -> MasterFinding | None:
+    """Part 5(b): when 2+ independent timing observations co-occur, present
+    ONE synthesized timing issue referencing each underlying finding, rather
+    than leaving the lawyer to notice the connection across separate cards.
+    """
+    if len(temporal_findings) < 2:
+        return None
+    combined_statements = " ".join(f.statement for f in temporal_findings)
+    return MasterFinding(
+        id="synthesis:timing",
+        category=FindingCategory.SYNTHESIS,
+        title="Multiple timing observations together may raise a prematurity/accrual issue",
+        statement=(
+            f"{len(temporal_findings)} independent timing observations were identified in this case: "
+            f"{combined_statements}"
+        ),
+        helps_side="neutral", hurts_side="neutral", strength="HIGH",
+        confidence="Synthesis of independently-computed, deterministic timing observations — see synthesizes for each underlying finding.",
+        legal_significance=(
+            "Taken together, these timing observations may support a prematurity or accrual-date argument, "
+            "subject to verified legal research — no single observation alone is dispositive."
+        ),
+        caveat=(
+            "This synthesis combines independently-computed observations; it does not itself establish that "
+            "any legal deadline was missed."
+        ),
+        legal_research_required=True,
+        synthesizes=[f.id for f in temporal_findings],
+    )
+
+
+def build_credibility_synthesis_finding(
+    allegation_types_present: set[AllegationType],
+    pattern: PaymentPatternResult,
+    relationship_findings: list[PartyRelationshipFinding],
+    earliest_payment_date: date | None,
+) -> MasterFinding | None:
+    """Part 5(a) worked example: corporate relationship predating the
+    payments + a repeated, similarly-described transfer pattern + a mistake/
+    no-legal-basis allegation, combined into ONE synthesized credibility
+    observation. Explicitly phrased as "may weaken ... warrants examination"
+    — never "therefore the payment was not mistaken."
+    """
+    matched_types = allegation_types_present & _MISTAKE_LIKE_ALLEGATIONS
+    if not pattern.is_significant or not matched_types or earliest_payment_date is None:
+        return None
+
+    predating_relationships = [
+        f for f in relationship_findings
+        if classify_relationship_timing(f.relationship_start, f.relationship_end, earliest_payment_date).status == "active_at_date"
+    ]
+    if not predating_relationships:
+        return None
+
+    relationship_names = ", ".join(sorted({f.related_party_name for f in predating_relationships}))
+    type_labels = ", ".join(sorted(t.value for t in matched_types))
+    return MasterFinding(
+        id="synthesis:credibility",
+        category=FindingCategory.SYNTHESIS,
+        title="Documented relationship + repeated transfers may warrant scrutiny of the pleaded theory",
+        statement=(
+            f"A documented relationship with {relationship_names} predates the transfers in this case. Combined "
+            f"with a repeated, similarly-described transfer pattern ({pattern.description}), this may weaken a "
+            f"purely accidental-transfer explanation and warrants examination of the parties' actual knowledge "
+            f"and course of dealing. This does not by itself establish that the pleaded theory ('{type_labels}') is false."
+        ),
+        helps_side="neutral", hurts_side="neutral", strength="HIGH",
+        confidence="Synthesis of independently-computed corporate-relationship timing and payment-pattern signals.",
+        legal_significance=(
+            "A court may weigh a pre-existing relationship together with a repeated transfer pattern when "
+            "assessing whether a mistake/no-legal-basis theory is credible on the full record."
+        ),
+        caveat=(
+            "Corporate relationship status alone is not evidence of actual knowledge, and a repeated pattern "
+            "does not itself disprove that each transfer was independently mistaken — each must still be "
+            "assessed on its own facts."
+        ),
+        alternative_explanations=[
+            "Each transfer could have been independently and separately mistaken, notwithstanding the relationship and pattern.",
+        ],
+        recommended_action=(
+            "Obtain correspondence or internal records showing the relevant parties' actual knowledge and "
+            "authorization for each transfer."
+        ),
+        legal_research_required=False,
+        synthesizes=(
+            ["theory_vs_conduct:payment_pattern"]
+            + [f"corporate_relationship:{relationship_findings.index(f)}" for f in predating_relationships]
+        ),
     )
 
 

@@ -277,3 +277,22 @@ def test_candidate_not_discarded_when_only_loan_reference_is_recognized():
     assert candidate is not None
     assert candidate.referenced_contract_date == date(2026, 1, 1)
     assert candidate.payer is None and candidate.recipient is None and candidate.amount is None
+
+
+def test_extracts_counterparty_as_payer_on_bank_statement_layout():
+    """A bank-statement (выписка по счету) transaction row names the
+    counterparty right after the decimal amount — this is the account
+    holder's own incoming-funds statement, so the counterparty is the
+    payer. Also covers two more real OCR-merge gaps found live: the
+    legal-form's own internal space ("ОГРАНИЧЕННОЙОТВЕТСТВЕННОСТЬЮ") and
+    the qualifier-to-quote gap ("ГК"ИМЯ" with no space before the quote).
+    """
+    text = (
+        '01 20.02.2025 4 500 000.00 044525593 ИНН 7743188387Счет N 40702810701300039350'
+        'ОБЩЕСТВО С ОГРАНИЧЕННОЙОТВЕТСТВЕННОСТЬЮ ГК"ДЕЛЬТА ТРЕЙД"\n'
+        'Перечисление средств по договору процентного займа от 10.01.2025г.'
+    )
+    candidate = extract_payment_order_candidate(_document(), _chunk(text))
+    assert candidate is not None
+    assert candidate.amount == "4500000.00"
+    assert candidate.payer is not None and "ДЕЛЬТА ТРЕЙД" in candidate.payer

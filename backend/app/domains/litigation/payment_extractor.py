@@ -88,7 +88,10 @@ _DATE_NEAR_HEADER = re.compile(
 # not specific to any one company.
 _LEGAL_FORM_PREFIX = (
     r"(?:ООО|ОАО|ПАО|ЗАО|АО|ИП"
-    r"|ОБЩЕСТВО\s+С\s+ОГРАНИЧЕННОЙ\s+ОТВЕТСТВЕННОСТЬЮ"
+    # \s* (not \s+) between ОГРАНИЧЕННОЙ and ОТВЕТСТВЕННОСТЬЮ — the same
+# OCR space-drop class fixed elsewhere in this module; found live on a
+# real bank statement ("ОГРАНИЧЕННОЙОТВЕТСТВЕННОСТЬЮ" as one run-on word).
+r"|ОБЩЕСТВО\s+С\s+ОГРАНИЧЕННОЙ\s*ОТВЕТСТВЕННОСТЬЮ"
     r"|(?:ПУБЛИЧНОЕ|ЗАКРЫТОЕ|ОТКРЫТОЕ)\s+АКЦИОНЕРНОЕ\s+ОБЩЕСТВО"
     r"|АКЦИОНЕРНОЕ\s+ОБЩЕСТВО"
     r"|ИНДИВИДУАЛЬНЫЙ\s+ПРЕДПРИНИМАТЕЛЬ)"
@@ -97,7 +100,10 @@ _LEGAL_FORM_PREFIX = (
 # the legal-form prefix and the quoted name — common in real Russian company
 # names ("ООО ГК «...»", "АО ТД «...»") and otherwise breaks the match entirely
 # since the plain \s* gap can't span an extra word.
-_ENTITY = re.compile(_LEGAL_FORM_PREFIX + r'\s*(?:[А-ЯЁ]{1,4}\s+)?[«"][^»"]+[»"]')
+# Qualifier-to-quote gap is \s* (not \s+) for the same OCR reason as
+# everywhere else in this module — real text seen with no space at all
+# between the qualifier and the opening quote ('ГК"ЛЕДОВЫЙ...' as one run).
+_ENTITY = re.compile(_LEGAL_FORM_PREFIX + r'\s*(?:[А-ЯЁ]{1,4}\s*)?[«"][^»"]+[»"]')
 _LABEL_WINDOW = 150  # how far before a "Плательщик"/"Получатель" label an entity name is still considered "its" name — wide
 # enough to bridge the extra boilerplate lines (form/field labels) real bank layouts commonly place between the two
 
@@ -170,6 +176,22 @@ def extract_payment_order_candidate(document: Document, chunk: DocumentChunk) ->
         if decimal_match:
             digits = decimal_match.group(1).replace(" ", "").replace(chr(0xA0), "").replace(chr(0x202F), "")
             amount = f"{digits}.{decimal_match.group(2)}"
+            if payer is None and recipient is None:
+                # A bank statement's transaction row names the counterparty
+                # (never the account holder, who's named once in the document
+                # header instead) immediately after the amount — e.g. "...5
+                # 000 000.00 044525593 ИНН 7743188387Счет N ...ЛЕДОВЫЙ СЕРВИС".
+                # Assigned to `payer`: every real example of this layout seen
+                # so far is a recipient's own incoming-funds statement, i.e.
+                # the counterparty is the payer. A statement showing outgoing
+                # (Дебет) transactions would need real debit/credit-column
+                # direction detection to assign this correctly — not built
+                # here since no real evidence of that case has been seen yet;
+                # deliberately left as a known scope limit rather than guessed.
+                counterparty_window = text[decimal_match.end() : decimal_match.end() + 300]
+                counterparty_match = _ENTITY.search(counterparty_window)
+                if counterparty_match:
+                    payer = counterparty_match.group(0)
         else:
             amount = None
 
