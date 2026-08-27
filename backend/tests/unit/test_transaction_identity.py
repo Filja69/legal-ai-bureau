@@ -172,6 +172,38 @@ def test_h_ambiguous_evidence_amount_and_reference_only_does_not_auto_merge():
     assert all(ct.review_reason is not None for ct in result)
 
 
+def test_register_and_bank_statement_dates_one_day_apart_are_flagged_not_merged():
+    """Real production bug: a consolidated payment register recorded a
+    transfer as 06.05.2025 while the corroborating bank statement for the
+    same real transfer recorded it as 07.05.2025 (instruction date vs.
+    value/posting date — an ordinary banking artifact). Before this fix,
+    _conflicts() hard-blocked ANY date difference, so this pair got neither
+    merged NOR flagged for review — it silently double-counted the same
+    transaction in Money Flow. It must now surface as needs_review, and
+    still must NOT auto-merge (a 1-day gap is not proof of identity).
+    """
+    register_row = _order(
+        amount="3000000.00", payment_date=date(2025, 5, 6), referenced_contract_date=date(2024, 9, 11), document_id=_DOC_REGISTER
+    )
+    bank_statement_row = _order(
+        amount="3000000.00", payment_date=date(2025, 5, 7), referenced_contract_date=date(2024, 9, 11), document_id=_DOC_STMT
+    )
+    result = build_canonical_transactions([register_row, bank_statement_row], _TITLES)
+    assert len(result) == 2
+    assert all(ct.needs_review for ct in result)
+    assert all("payment_date_close" in (ct.review_reason or "") for ct in result)
+
+
+def test_dates_four_days_apart_remain_a_hard_conflict():
+    """Outside the close-date window, the existing hard-conflict rule still
+    applies — no signal, no review flag, no merge."""
+    a = _order(amount="3000000.00", payment_date=date(2025, 5, 6), referenced_contract_date=date(2024, 9, 11))
+    b = _order(amount="3000000.00", payment_date=date(2025, 5, 10), referenced_contract_date=date(2024, 9, 11), document_id=_DOC_STMT)
+    result = build_canonical_transactions([a, b], _TITLES)
+    assert len(result) == 2
+    assert not any(ct.needs_review for ct in result)
+
+
 def test_i_three_evidence_sources_merge_into_one_canonical_transaction():
     po = _order(amount="800000.00", payment_date=date(2025, 7, 1), payer="ООО Мир", document_id=_DOC_PO)
     stmt = _order(amount="800000.00", payment_date=date(2025, 7, 1), payer="ООО Мир", document_id=_DOC_STMT)

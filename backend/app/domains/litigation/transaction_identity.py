@@ -90,6 +90,18 @@ def _agreement_signals(a: CasePaymentOrder, b: CasePaymentOrder) -> list[str]:
     signals: list[str] = []
     if a.payment_date is not None and a.payment_date == b.payment_date:
         signals.append("payment_date")
+    elif (
+        a.payment_date is not None
+        and b.payment_date is not None
+        and 0 < abs((a.payment_date - b.payment_date).days) <= _CLOSE_DATE_WINDOW_DAYS
+    ):
+        # A register's own recorded date and a bank statement's date for the
+        # SAME real transfer routinely differ by a day or two (instruction
+        # date vs. value/posting date, or a weekend clearing gap) — a real,
+        # ordinary banking artifact, not a coincidence to ignore. This is
+        # deliberately NOT in _SUFFICIENT_ALONE (never auto-merges on its
+        # own), only ever surfaces as a needs_review flag.
+        signals.append("payment_date_close")
     if a.referenced_contract_date is not None and a.referenced_contract_date == b.referenced_contract_date:
         signals.append("referenced_contract_date")
     if a.referenced_contract_number is not None and a.referenced_contract_number == b.referenced_contract_number:
@@ -104,19 +116,32 @@ def _agreement_signals(a: CasePaymentOrder, b: CasePaymentOrder) -> list[str]:
 
 
 _SUFFICIENT_ALONE = frozenset({"payment_date", "referenced_contract_number"})
+# How many calendar days apart two rows' payment dates may be while still
+# being flagged (never auto-merged) as a possible instruction-date/value-
+# date pair for the same real transfer — see _agreement_signals. Real
+# production data showed a register entry and its corroborating bank
+# statement one calendar day apart for the same transaction.
+_CLOSE_DATE_WINDOW_DAYS = 3
 
 
 def _conflicts(a: CasePaymentOrder, b: CasePaymentOrder) -> bool:
     """A hard exclusion, checked before any signal counting: two rows with
-    different, both-known payment dates are never the same transaction,
-    no matter how many other fields happen to agree. Without this,
-    union-find's transitivity could bridge two genuinely different dated
-    payments together through a shared undated corroborating row (which
-    itself can't tell which of several same-amount, same-reference
-    payments it corroborates) — exactly the real bug this module's tests
-    were written to catch.
+    different, both-known payment dates MORE than _CLOSE_DATE_WINDOW_DAYS
+    apart are never the same transaction, no matter how many other fields
+    happen to agree. Without this, union-find's transitivity could bridge
+    two genuinely different dated payments together through a shared
+    undated corroborating row (which itself can't tell which of several
+    same-amount, same-reference payments it corroborates) — exactly the
+    real bug this module's tests were written to catch. Dates within the
+    window are not a conflict — they fall through to _agreement_signals'
+    "payment_date_close" WEAK signal instead, so they get flagged for
+    review rather than silently ignored or force-merged.
     """
-    return a.payment_date is not None and b.payment_date is not None and a.payment_date != b.payment_date
+    return (
+        a.payment_date is not None
+        and b.payment_date is not None
+        and abs((a.payment_date - b.payment_date).days) > _CLOSE_DATE_WINDOW_DAYS
+    )
 
 
 @dataclass
