@@ -68,7 +68,7 @@ _AMOUNT_FIELD = re.compile(r"Сумма\s+(\d[\d\s]*)-(\d{2})(?!\d)")
 # same line (e.g. it would glom the date's own trailing digits into the
 # amount: "...2025 5 000 000.00..." -> wrongly "20255000000.00").
 _DECIMAL_AMOUNT_NEAR_DATE = re.compile(
-    r"\d{1,2}[./]\d{1,2}[./]\d{2,4}\s+(\d[\d \xa0 ]*)\.(\d{2})(?!\.\d)"
+    r"(\d{1,2}[./]\d{1,2}[./]\d{2,4})\s+(\d[\d \xa0 ]*)\.(\d{2})(?!\.\d)"
 )
 _DATE_NEAR_HEADER = re.compile(
     # The gap between the header/label and the date can itself contain
@@ -162,6 +162,7 @@ def extract_payment_order_candidate(document: Document, chunk: DocumentChunk) ->
     payer = _find_party(text, "Плательщик")
     recipient = _find_party(text, "Получатель")
 
+    decimal_match = None
     amount_match = _AMOUNT_FIELD.search(text)
     if amount_match:
         amount = f"{amount_match.group(1).replace(' ', '')}.{amount_match.group(2)}"
@@ -174,8 +175,8 @@ def extract_payment_order_candidate(document: Document, chunk: DocumentChunk) ->
         # like an account/BIK/INN number, which never carries one.
         decimal_match = _DECIMAL_AMOUNT_NEAR_DATE.search(text)
         if decimal_match:
-            digits = decimal_match.group(1).replace(" ", "").replace(chr(0xA0), "").replace(chr(0x202F), "")
-            amount = f"{digits}.{decimal_match.group(2)}"
+            digits = decimal_match.group(2).replace(" ", "").replace(chr(0xA0), "").replace(chr(0x202F), "")
+            amount = f"{digits}.{decimal_match.group(3)}"
             if payer is None and recipient is None:
                 # A bank statement's transaction row names the counterparty
                 # (never the account holder, who's named once in the document
@@ -196,7 +197,19 @@ def extract_payment_order_candidate(document: Document, chunk: DocumentChunk) ->
             amount = None
 
     date_match = _DATE_NEAR_HEADER.search(text)
-    payment_date = _normalize_date(date_match.group(1)) if date_match else None
+    if date_match:
+        payment_date = _normalize_date(date_match.group(1))
+    elif decimal_match is not None:
+        # Bank-statement layout: no "ПЛАТЁЖНОЕ ПОРУЧЕНИЕ"/"Дата" header is
+        # near enough to the transaction date for _DATE_NEAR_HEADER to find
+        # it (the real column-header word "Дата" sits many lines above the
+        # actual per-row date). The transaction date immediately preceding
+        # the amount in the same row (already anchored by
+        # _DECIMAL_AMOUNT_NEAR_DATE for the amount itself) is this layout's
+        # own date field — reuse that match instead of leaving it unparsed.
+        payment_date = _normalize_date(decimal_match.group(1))
+    else:
+        payment_date = None
 
     purpose_match = _PAYMENT_PURPOSE_LINE.search(text)
     payment_purpose = purpose_match.group(1).strip() if purpose_match else None

@@ -296,3 +296,27 @@ def test_extracts_counterparty_as_payer_on_bank_statement_layout():
     assert candidate is not None
     assert candidate.amount == "4500000.00"
     assert candidate.payer is not None and "ДЕЛЬТА ТРЕЙД" in candidate.payer
+
+
+def test_extracts_payment_date_on_bank_statement_layout():
+    """Regression: a bank statement's own column header ("КО Дата операции")
+    sits many characters before the actual per-row transaction date — far
+    outside _DATE_NEAR_HEADER's 20-char proximity window, and this layout
+    never has a "ПЛАТЁЖНОЕ ПОРУЧЕНИЕ" header either. Real production data
+    (case a07b53d7...) showed 4 bank-statement payment orders extracting a
+    correct amount but payment_date=None, which prevented transaction-
+    identity matching against the corroborating register entry for the same
+    real payment and inflated Money Flow's total. The date immediately
+    preceding the amount (already the anchor for amount extraction on this
+    layout) must also populate payment_date.
+    """
+    text = (
+        "Номер\nдокумента КО Дата\nоперации Дебет Кредит Реквизиты контрагента Основание операцииБИК Наименование\n\n"
+        '01 01.10.2024 2 000 000.00 044525593 ИНН 7743188387Счет N 40702810701300039350'
+        'ОБЩЕСТВО С ОГРАНИЧЕННОЙОТВЕТСТВЕННОСТЬЮ ГК"ДЕЛЬТА ТРЕЙД"\n'
+        "Перечисление средств по договору процентного займа от 11.09.2024г."
+    )
+    candidate = extract_payment_order_candidate(_document(), _chunk(text))
+    assert candidate is not None
+    assert candidate.payment_date == date(2024, 10, 1)
+    assert candidate.amount == "2000000.00"
