@@ -374,3 +374,58 @@ async def test_corporate_relationship_gap_when_only_counterparty_registry_upload
     findings_after = report_after.json()["findings"]
     gap_findings_after = [f for f in findings_after if f["id"].startswith("corporate_relationship_gap:")]
     assert gap_findings_after == []
+
+
+@pytest.mark.asyncio
+async def test_corporate_relationship_gap_when_relationship_documents_the_client_side(client, db_session):
+    """Regression for a real bug: the found relationship can point at
+    EITHER of the case's two named parties depending on how the case is
+    set up — it is not always "the counterparty." Here the relationship
+    documents the case's own CLIENT side (a registry extract for the
+    client exists), so the gap must be about the missing COUNTERPARTY
+    registry document, not (incorrectly) re-flag the client side that is
+    already fully documented.
+    """
+    _org, workspace = await make_org_and_workspace(db_session)
+    await db_session.commit()
+    headers = {"X-Workspace-Id": str(workspace.id)}
+
+    create_resp = await client.post(
+        "/api/v1/legal/cases",
+        json={
+            "title": "Synthetic Reversed Affiliation Case", "client_name": "ООО «Клиент Реверс»",
+            "counterparty_name": "ООО «Контрагент Реверс»",
+        },
+        headers=headers,
+    )
+    assert create_resp.status_code == 201
+    case_id = create_resp.json()["id"]
+
+    person_id = await _add_party(client, workspace.id, case_id, "Сидоров С.С.", "individual", "unknown")
+    client_party_id = await _add_party(client, workspace.id, case_id, "ООО «Клиент Реверс»", "organization", "defendant")
+
+    await client.post(
+        f"/api/v1/legal/cases/{case_id}/party-relationships",
+        json={
+            "subject_party_id": person_id, "related_party_id": client_party_id, "relationship_type": "director",
+            "start_date": "2023-01-01", "verification_status": "document_supported",
+        },
+        headers=headers,
+    )
+
+    client_egrul_id = await _upload_ready_document(
+        client, workspace.id, "client_egrul.txt",
+        "Выписка из ЕГРЮЛ. ООО «Клиент Реверс». Генеральный директор: Сидоров С.С.",
+    )
+    await _attach(client, workspace.id, case_id, client_egrul_id, "other")
+
+    analyze = await client.post(f"/api/v1/legal/cases/{case_id}/analyze", headers=headers)
+    assert analyze.status_code == 200
+
+    report = await client.get(f"/api/v1/legal/cases/{case_id}/master-report", headers=headers)
+    gap_findings = [f for f in report.json()["findings"] if f["id"].startswith("corporate_relationship_gap:")]
+    assert len(gap_findings) == 1
+    # The gap must name the COUNTERPARTY (the side with no registry doc), not
+    # the client (whose registry doc already exists in the case record).
+    combined_text = gap_findings[0]["title"] + gap_findings[0]["statement"]
+    assert "ООО «Контрагент Реверс»" in combined_text

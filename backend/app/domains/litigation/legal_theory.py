@@ -260,35 +260,40 @@ def evaluate_contract_formation_by_conduct(
 
 def evaluate_corporate_relationship_gaps(
     *,
-    counterparty_relationship_found: bool,
-    subject_own_registry_document_present: bool,
-    counterparty_name: str,
-    subject_name: str,
+    relationship_found: bool,
+    documented_party_name: str,
+    other_party_name: str,
+    other_party_registry_document_present: bool,
 ) -> list[EvidenceGap]:
     """Part 4 of the P1 brief: corporate-relationship reasoning restricted to
-    independent evidence only. When a relationship is found on ONE side
-    (e.g. an individual's registry-confirmed role at the counterparty) but
-    the SAME individual's role at the case's own client/claimant side has no
-    supporting document in the case record, this produces an explicit gap
-    rather than assuming or inventing the missing half.
+    independent evidence only. A "dual affiliation" argument (the same
+    individual holds a role at both parties to the case) needs registry
+    evidence on BOTH sides. When a relationship is documented for one named
+    party (`documented_party_name` — whichever one it happens to be; this
+    function is deliberately agnostic to which side is "our client" versus
+    "the counterparty", since that mapping is the caller's to make, not an
+    assumption to bake in here) but no registry document exists anywhere in
+    the case record for the OTHER named party (`other_party_name`), this
+    produces an explicit gap rather than assuming or inventing the missing
+    half.
     """
-    if not counterparty_relationship_found or subject_own_registry_document_present:
+    if not relationship_found or other_party_registry_document_present:
         return []
     return [
         EvidenceGap(
             missing_fact=(
-                f"An official registry extract (e.g. EGRUL) for {subject_name} showing whether the same "
+                f"An official registry extract (e.g. EGRUL) for {other_party_name} showing whether the same "
                 "individual holds a role there."
             ),
             why_it_matters=(
-                f"A relationship was found showing an individual's role at {counterparty_name}, but without "
-                f"{subject_name}'s own registry document there is no independently-verified evidence of that "
-                f"individual's role (if any) at {subject_name} — a dual-role affiliation argument requires "
+                f"A relationship was found showing an individual's role at {documented_party_name}, but without "
+                f"a registry document for {other_party_name} there is no independently-verified evidence of that "
+                f"individual's role (if any) at {other_party_name} — a dual-role affiliation argument requires "
                 "evidence on BOTH sides, not one."
             ),
             could_be_proven_by=(
-                f"An EGRUL (or equivalent official registry) extract for {subject_name}, dated at or near the "
-                "events in dispute."
+                f"An EGRUL (or equivalent official registry) extract for {other_party_name}, dated at or near "
+                "the events in dispute."
             ),
             strengthens_theory_if_obtained="significant",
         )

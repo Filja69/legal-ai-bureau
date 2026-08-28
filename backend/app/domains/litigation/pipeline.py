@@ -957,13 +957,28 @@ class LitigationCaseEngine:
 
         corporate_relationship_gaps: list[EvidenceGap] = []
         for rel_finding in party_relationship_findings:
-            subject_has_own_registry_doc = await self._has_registry_document_for(case, case.client_name)
+            # A dual-affiliation argument needs registry evidence on BOTH of
+            # the case's two named parties. This relationship documents one
+            # of them (`documented_party_name`) — determine which, then
+            # check the OTHER one, never assuming "client" is always the
+            # side being checked (that assumption was wrong here once
+            # already: client_name/counterparty_name can point at either
+            # the plaintiff or the defendant depending on case setup).
+            documented_party_name = rel_finding.related_party_name
+            other_party_name: str | None = None
+            if case.client_name and documented_party_name.strip().lower() == case.client_name.strip().lower():
+                other_party_name = case.counterparty_name
+            elif case.counterparty_name and documented_party_name.strip().lower() == case.counterparty_name.strip().lower():
+                other_party_name = case.client_name
+            if not other_party_name:
+                continue  # relationship doesn't clearly document either named case party — never guess which side it is
+            other_party_has_registry_doc = await self._has_registry_document_for(case, other_party_name)
             corporate_relationship_gaps.extend(
                 evaluate_corporate_relationship_gaps(
-                    counterparty_relationship_found=True,
-                    subject_own_registry_document_present=subject_has_own_registry_doc,
-                    counterparty_name=rel_finding.related_party_name,
-                    subject_name=case.client_name or "the case's own client",
+                    relationship_found=True,
+                    documented_party_name=documented_party_name,
+                    other_party_name=other_party_name,
+                    other_party_registry_document_present=other_party_has_registry_doc,
                 )
             )
         findings.extend(build_corporate_relationship_evidence_gap_findings(corporate_relationship_gaps))

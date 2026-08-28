@@ -175,8 +175,8 @@ def test_research_question_never_contains_case_specific_content():
 
 def test_corporate_relationship_gap_produced_when_only_one_side_documented():
     gaps = evaluate_corporate_relationship_gaps(
-        counterparty_relationship_found=True, subject_own_registry_document_present=False,
-        counterparty_name="ООО Ромашка", subject_name="ООО Клиент",
+        relationship_found=True, other_party_registry_document_present=False,
+        documented_party_name="ООО Ромашка", other_party_name="ООО Клиент",
     )
     assert len(gaps) == 1
     assert "ООО Клиент" in gaps[0].missing_fact
@@ -185,15 +185,15 @@ def test_corporate_relationship_gap_produced_when_only_one_side_documented():
 
 def test_no_gap_when_both_sides_documented():
     gaps = evaluate_corporate_relationship_gaps(
-        counterparty_relationship_found=True, subject_own_registry_document_present=True,
-        counterparty_name="ООО Ромашка", subject_name="ООО Клиент",
+        relationship_found=True, other_party_registry_document_present=True,
+        documented_party_name="ООО Ромашка", other_party_name="ООО Клиент",
     )
     assert gaps == []
 
 
 def test_no_gap_when_no_relationship_found_at_all():
     gaps = evaluate_corporate_relationship_gaps(
-        counterparty_relationship_found=False, subject_own_registry_document_present=False,
-        counterparty_name="ООО Ромашка", subject_name="ООО Клиент",
+        relationship_found=False, other_party_registry_document_present=False,
+        documented_party_name="ООО Ромашка", other_party_name="ООО Клиент",
     )
     assert gaps == []
