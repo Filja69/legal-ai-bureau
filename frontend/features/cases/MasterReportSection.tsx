@@ -213,6 +213,11 @@ export function MasterReportSection({
                     <Td>{v.interest_rate ?? "—"}</Td>
                     <Td>
                       <Badge tone={v.signature_status === "signed" ? "green" : "amber"}>{v.signature_status}</Badge>
+                      {v.notarized && (
+                        <Badge tone="blue" key="notarized">
+                          нотариально удостоверен
+                        </Badge>
+                      )}
                     </Td>
                   </tr>
                 ))}

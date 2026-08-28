@@ -23,6 +23,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.research import ResearchRequest, research
+from app.config.settings import get_settings
 from app.db.session import get_session
 from app.domains.legal_research.models import ResearchMode
 from app.domains.litigation.case_relationships import build_related_litigation_note
@@ -76,9 +77,11 @@ from app.schemas.litigation import (
     ContractVersionTermsOut,
     CourtScenarioOut,
     DraftResponseSectionOut,
+    EvidenceGapOut,
     EvidenceMatrixRowOut,
     EvidenceSourceOut,
     KeyFindingOut,
+    LegalTheoryOut,
     MasterCaseReportOut,
     MasterFindingOut,
     MissingEvidenceItemOut,
@@ -88,6 +91,7 @@ from app.schemas.litigation import (
     PartyRelationshipFindingOut,
 )
 from app.security.deps import get_current_user, get_workspace_id
+from app.security.rate_limit import rate_limit_by_workspace
 
 router = APIRouter(tags=["cases"])
 logger = structlog.get_logger(__name__)
@@ -842,6 +846,27 @@ async def add_case_related_litigation(
     )
 
 
+@router.delete("/cases/{case_id}/related-litigation/{related_litigation_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
+async def delete_case_related_litigation(
+    case_id: uuid.UUID,
+    related_litigation_id: uuid.UUID,
+    workspace_id: uuid.UUID = Depends(get_workspace_id),
+    user=Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> None:
+    """No DELETE endpoint previously existed for a related-litigation row —
+    added specifically so a wrongly-entered or contamination-risk row (one
+    whose facts trace to something other than this case's own uploaded
+    documents) can be removed without deleting and re-creating the case."""
+    await _get_case_or_404(session, workspace_id, case_id)
+    related = await CaseRelatedLitigationRepository(session, workspace_id).get(related_litigation_id)
+    if related is None or related.case_id != case_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Related litigation record not found in this case")
+    await session.delete(related)
+    await session.commit()
+    logger.info("case_related_litigation_deleted", case_id=str(case_id), related_litigation_id=str(related_litigation_id))
+
+
 # --- Master Case Report (top-level synthesis over E1-E4 + Case
 # Intelligence — run POST /analyze and POST /party-relationships/sync-timeline
 # first for the fullest picture, but this works with partial data too). ---
@@ -912,12 +937,51 @@ async def get_case_master_report(
                 document_id=t.document_id, document_title=t.document_title, amounts=t.amounts,
                 interest_rate=t.interest_rate, maturity_dates=t.maturity_dates,
                 formation_clause_present=t.formation_clause_present, signature_status=t.signature_status,
+                notarized=t.notarized,
             )
             for t in report.contract_version_matrix
         ],
         money_flow=_to_money_flow_out(report.money_flow),
         legal_kb_warning=report.legal_kb_warning,
     )
+
+
+# --- Legal Theory Layer (P1) — deliberately its own endpoint, never folded
+# into GET /master-report: this makes real LegalResearchEngine calls (real
+# LLM usage, can take real time), unlike every other endpoint on this
+# router. Call on demand only. ---
+
+
+@router.post(
+    "/cases/{case_id}/legal-theories",
+    response_model=list[LegalTheoryOut],
+    dependencies=[Depends(rate_limit_by_workspace("legal_theories", get_settings().rate_limit_llm_per_minute))],
+)
+async def get_case_legal_theories(
+    case_id: uuid.UUID,
+    workspace_id: uuid.UUID = Depends(get_workspace_id),
+    user=Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> list[LegalTheoryOut]:
+    case = await _get_case_or_404(session, workspace_id, case_id)
+    engine = LitigationCaseEngine(session)
+    theories = await engine.get_legal_theories(case)
+    return [
+        LegalTheoryOut(
+            theory_name=t.theory_name, classification=t.classification, supporting_facts=t.supporting_facts,
+            contradicting_facts=t.contradicting_facts, alternative_explanations=t.alternative_explanations,
+            evidence_gaps=[
+                EvidenceGapOut(
+                    missing_fact=g.missing_fact, why_it_matters=g.why_it_matters, could_be_proven_by=g.could_be_proven_by,
+                    strengthens_theory_if_obtained=g.strengthens_theory_if_obtained,
+                )
+                for g in t.evidence_gaps
+            ],
+            verified_legal_authority=t.verified_legal_authority, source_provenance=t.source_provenance,
+            confidence=t.confidence, additional_evidence_required=t.additional_evidence_required, research_id=t.research_id,
+        )
+        for t in theories
+    ]
 
 
 # --- Explicitly out of scope this phase (brief §58's stop condition) ---

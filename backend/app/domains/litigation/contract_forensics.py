@@ -24,6 +24,16 @@ from app.domains.shared.legal_patterns import AMOUNT, DATE_NUMERIC, DATE_WORDY
 _INTEREST_RATE_PATTERN = re.compile(r"(\d{1,2}(?:[.,]\d+)?)\s*\(?[а-яё]*\)?\s*процент[а-яё]*\s+годовых", re.IGNORECASE)
 _FORMATION_CLAUSE_PATTERN = re.compile(r"считается\s+заключ[её]нн?ым\s+с\s+момента", re.IGNORECASE)
 _MATURITY_CONTEXT_PATTERN = re.compile(r"(?:возврат[а-яё]*|срок[а-яё]*\s+до|обязан[а-яё]*\s+вернуть)[^.]{0,60}", re.IGNORECASE)
+# Requires "certified" (удостовер-) actually near a notary word — a bare
+# mention of "нотариус" in boilerplate (e.g. "предоставить нотариусу
+# документы") is not itself evidence that THIS instrument was notarized.
+# A notarized instrument is materially stronger formation evidence than an
+# unsigned draft — see legal_theory.py's contract-formation-by-conduct
+# evaluator, which treats this as one of its named factors.
+_NOTARIZATION_PATTERN = re.compile(
+    r"удостовер[а-яё]*\s+нотариус[а-яё]*|нотариальн[а-яё]*\s+удостовер[а-яё]*|нотариально\s+удостовер[а-яё]*",
+    re.IGNORECASE,
+)
 
 
 def _normalize_amount(raw: str) -> str | None:
@@ -46,6 +56,7 @@ class ContractVersionTerms:
     maturity_dates: list[str] = field(default_factory=list)  # raw matched text, not normalized (mixed numeric/wordy formats)
     formation_clause_present: bool = False
     signature_status: str = "unknown"  # confirmed_signed | unsigned_or_draft | unknown
+    notarized: bool = False
 
 
 def extract_contract_terms(document_id: uuid.UUID, document_title: str, text: str) -> ContractVersionTerms:
@@ -66,12 +77,14 @@ def extract_contract_terms(document_id: uuid.UUID, document_title: str, text: st
             maturity_dates.append(date_match.group(0))
 
     formation_clause_present = bool(_FORMATION_CLAUSE_PATTERN.search(text))
+    notarized = bool(_NOTARIZATION_PATTERN.search(text))
 
     status, _sig_doc_id, _sig_title = _classify_contract_signature([(document_id, document_title, text)])
 
     return ContractVersionTerms(
         document_id=document_id, document_title=document_title, amounts=amounts, interest_rate=interest_rate,
         maturity_dates=maturity_dates, formation_clause_present=formation_clause_present, signature_status=status,
+        notarized=notarized,
     )
 
 

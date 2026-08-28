@@ -303,6 +303,7 @@ export interface ContractVersionTerms {
   maturity_dates: string[];
   formation_clause_present: boolean;
   signature_status: string;
+  notarized: boolean;
 }
 
 export interface MasterCaseReport {

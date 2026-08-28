@@ -7,6 +7,7 @@ client data in production/tests" rule established throughout this project.
 """
 from __future__ import annotations
 
+import io
 import uuid
 
 import pytest
@@ -142,6 +143,65 @@ async def test_related_litigation_never_states_a_causal_claim(client, db_session
 
 
 @pytest.mark.asyncio
+async def test_delete_related_litigation_removes_it_and_it_no_longer_appears_in_master_report(client, db_session):
+    """A related-litigation row can be entered in error, or turn out to trace
+    back to something other than this case's own uploaded documents — there
+    must be a way to remove it without deleting and re-creating the case."""
+    _org, workspace = await make_org_and_workspace(db_session)
+    await db_session.commit()
+    headers = {"X-Workspace-Id": str(workspace.id)}
+
+    case_id = await _create_case(client, workspace.id)
+    create_resp = await client.post(
+        f"/api/v1/legal/cases/{case_id}/related-litigation",
+        json={"court": "Арбитражный суд г. Москвы", "case_number": "А40-11111/2026"},
+        headers=headers,
+    )
+    assert create_resp.status_code == 201
+    related_id = create_resp.json()["id"]
+
+    delete_resp = await client.delete(f"/api/v1/legal/cases/{case_id}/related-litigation/{related_id}", headers=headers)
+    assert delete_resp.status_code == 204
+
+    list_resp = await client.get(f"/api/v1/legal/cases/{case_id}/related-litigation", headers=headers)
+    assert list_resp.json() == []
+
+    report_resp = await client.get(f"/api/v1/legal/cases/{case_id}/master-report", headers=headers)
+    finding_ids = [f["id"] for f in report_resp.json()["findings"]]
+    assert not any(fid.startswith("related_litigation:") for fid in finding_ids)
+
+    # Deleting a nonexistent id (already deleted, or never existed) is a 404.
+    repeat_delete = await client.delete(f"/api/v1/legal/cases/{case_id}/related-litigation/{related_id}", headers=headers)
+    assert repeat_delete.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_workspace_a_cannot_delete_workspace_b_related_litigation(client, db_session):
+    _org_a, workspace_a = await make_org_and_workspace(db_session, "Related Litigation Org A")
+    _org_b, workspace_b = await make_org_and_workspace(db_session, "Related Litigation Org B")
+    await db_session.commit()
+
+    case_id = await _create_case(client, workspace_a.id)
+    create_resp = await client.post(
+        f"/api/v1/legal/cases/{case_id}/related-litigation",
+        json={"case_number": "А40-22222/2026"},
+        headers={"X-Workspace-Id": str(workspace_a.id)},
+    )
+    related_id = create_resp.json()["id"]
+
+    delete_resp = await client.delete(
+        f"/api/v1/legal/cases/{case_id}/related-litigation/{related_id}", headers={"X-Workspace-Id": str(workspace_b.id)}
+    )
+    assert delete_resp.status_code == 404
+
+    # Still present when queried from the owning workspace.
+    list_resp = await client.get(
+        f"/api/v1/legal/cases/{case_id}/related-litigation", headers={"X-Workspace-Id": str(workspace_a.id)}
+    )
+    assert len(list_resp.json()) == 1
+
+
+@pytest.mark.asyncio
 async def test_relationship_timeline_sync_is_idempotent_and_never_touches_fact_derived_events(client, db_session):
     _org, workspace = await make_org_and_workspace(db_session)
     await db_session.commit()
@@ -235,3 +295,82 @@ async def test_workspace_isolation_across_all_new_endpoints(client, db_session):
         await client.post(f"/api/v1/legal/cases/{case_id}/related-litigation", json={"case_number": "test"}, headers=headers_b)
     ).status_code == 404
     assert (await client.post(f"/api/v1/legal/cases/{case_id}/party-relationships/sync-timeline", headers=headers_b)).status_code == 404
+
+
+async def _upload_ready_document(client, workspace_id, filename: str, text: str):
+    files = {"file": (filename, io.BytesIO(text.encode("utf-8")), "text/plain")}
+    response = await client.post("/api/v1/legal/documents", files=files, headers={"X-Workspace-Id": str(workspace_id)})
+    assert response.status_code == 201
+    return response.json()["id"]
+
+
+async def _attach(client, workspace_id, case_id, document_id, role):
+    resp = await client.post(
+        f"/api/v1/legal/cases/{case_id}/documents", json={"document_id": document_id, "role": role},
+        headers={"X-Workspace-Id": str(workspace_id)},
+    )
+    assert resp.status_code == 201
+
+
+@pytest.mark.asyncio
+async def test_corporate_relationship_gap_when_only_counterparty_registry_uploaded(client, db_session):
+    """Part 4 (P1 brief): a relationship found via the COUNTERPARTY's own
+    registry extract, with no registry document for the case's own client,
+    must produce an explicit evidence-gap finding — never an assumed dual
+    role. Uploading the client's own registry extract closes the gap.
+    """
+    _org, workspace = await make_org_and_workspace(db_session)
+    await db_session.commit()
+    headers = {"X-Workspace-Id": str(workspace.id)}
+
+    create_resp = await client.post(
+        "/api/v1/legal/cases",
+        json={
+            "title": "Synthetic Dual Affiliation Case", "client_name": "ООО «Клиент Синтетик»",
+            "counterparty_name": "ООО «Контрагент Синтетик»",
+        },
+        headers=headers,
+    )
+    assert create_resp.status_code == 201
+    case_id = create_resp.json()["id"]
+
+    person_id = await _add_party(client, workspace.id, case_id, "Петров П.П.", "individual", "unknown")
+    counterparty_id = await _add_party(client, workspace.id, case_id, "ООО «Контрагент Синтетик»", "organization", "defendant")
+
+    await client.post(
+        f"/api/v1/legal/cases/{case_id}/party-relationships",
+        json={
+            "subject_party_id": person_id, "related_party_id": counterparty_id, "relationship_type": "member",
+            "start_date": "2024-01-01", "verification_status": "document_supported",
+        },
+        headers=headers,
+    )
+
+    counterparty_egrul_id = await _upload_ready_document(
+        client, workspace.id, "counterparty_egrul.txt",
+        "Выписка из ЕГРЮЛ. ООО «Контрагент Синтетик». Участник: Петров П.П., доля 10%.",
+    )
+    await _attach(client, workspace.id, case_id, counterparty_egrul_id, "other")
+
+    analyze = await client.post(f"/api/v1/legal/cases/{case_id}/analyze", headers=headers)
+    assert analyze.status_code == 200
+
+    report_before = await client.get(f"/api/v1/legal/cases/{case_id}/master-report", headers=headers)
+    findings_before = report_before.json()["findings"]
+    gap_findings_before = [f for f in findings_before if f["id"].startswith("corporate_relationship_gap:")]
+    assert len(gap_findings_before) == 1
+    assert "ООО «Клиент Синтетик»" in gap_findings_before[0]["title"] or "ООО «Клиент Синтетик»" in gap_findings_before[0]["statement"]
+
+    client_egrul_id = await _upload_ready_document(
+        client, workspace.id, "client_egrul.txt",
+        "Выписка из ЕГРЮЛ. ООО «Клиент Синтетик». Генеральный директор: Петров П.П.",
+    )
+    await _attach(client, workspace.id, case_id, client_egrul_id, "other")
+
+    analyze2 = await client.post(f"/api/v1/legal/cases/{case_id}/analyze", headers=headers)
+    assert analyze2.status_code == 200
+
+    report_after = await client.get(f"/api/v1/legal/cases/{case_id}/master-report", headers=headers)
+    findings_after = report_after.json()["findings"]
+    gap_findings_after = [f for f in findings_after if f["id"].startswith("corporate_relationship_gap:")]
+    assert gap_findings_after == []

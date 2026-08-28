@@ -8,6 +8,7 @@ DB access, same separation as `app/domains/documents/pipeline.py`.
 """
 from __future__ import annotations
 
+import re
 import uuid
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -17,6 +18,8 @@ import structlog
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.domains.legal_research.engine import LegalResearchEngine
+from app.domains.legal_research.models import ClaimVerificationStatus, LegalResearchRequest
 from app.domains.litigation.allegation_extractor import ALLEGATION_ELIGIBLE_ROLES, extract_allegation_candidates
 from app.domains.litigation.case_relationships import (
     CaseHypothesisInput,
@@ -41,6 +44,14 @@ from app.domains.litigation.evidence_matrix import EvidenceMatrixRow, build_evid
 from app.domains.litigation.fact_dedup import CanonicalFact, deduplicate_facts
 from app.domains.litigation.fact_extractor import FactEvidenceCandidate, extract_fact_candidates
 from app.domains.litigation.interest_damages import extract_interest_calculation_table, extract_interest_claim, parse_ru_date
+from app.domains.litigation.legal_theory import (
+    ContractSignal,
+    EvidenceGap,
+    PaymentSignal,
+    TheoryCandidate,
+    evaluate_contract_formation_by_conduct,
+    evaluate_corporate_relationship_gaps,
+)
 from app.domains.litigation.master_report import (
     MasterCaseReport,
     RelatedLitigationInput,
@@ -49,6 +60,7 @@ from app.domains.litigation.master_report import (
     build_claim_contradiction_findings,
     build_contract_formation_findings,
     build_contract_mismatch_finding,
+    build_corporate_relationship_evidence_gap_findings,
     build_corporate_relationship_findings,
     build_course_of_dealing_finding,
     build_court_scenarios,
@@ -72,6 +84,7 @@ from app.domains.litigation.payment_extractor import extract_payment_order_candi
 from app.domains.litigation.temporal_reasoning import analyze_temporal_issues, extract_document_own_date
 from app.domains.litigation.timeline_builder import build_timeline
 from app.domains.litigation.transaction_identity import EvidenceSource, build_canonical_transactions
+from app.llm.routing.gateway import LLMGateway
 from app.models.legal_knowledge import LawVersion
 from app.models.matters import (
     Case,
@@ -129,6 +142,26 @@ class MoneyFlowSummary:
     total_amount: str
     referenced_contract_dates: dict[str, int]  # ISO date -> count of payments citing it
     referenced_contract_numbers: dict[str, int]  # raw number string -> count (excludes payments with no number stated)
+
+
+@dataclass
+class LegalTheoryResult:
+    """See legal_theory.py's module docstring and get_legal_theories() below
+    for the fail-closed discipline this carries: `classification` is only
+    ever "legal_theory" when `verified_legal_authority` is non-empty.
+    """
+
+    theory_name: str
+    classification: str  # "fact" | "inference" | "legal_theory" | "counsel_hypothesis"
+    supporting_facts: list[str]
+    contradicting_facts: list[str]
+    alternative_explanations: list[str]
+    evidence_gaps: list[EvidenceGap]
+    verified_legal_authority: list[str]
+    source_provenance: str
+    confidence: str
+    additional_evidence_required: list[str]
+    research_id: str | None
 
 
 class LitigationCaseEngine:
@@ -818,6 +851,32 @@ class LitigationCaseEngine:
                 results.append((document.id, document.title, document.extracted_text or ""))
         return results
 
+    async def _has_registry_document_for(self, case: Case, party_name: str | None) -> bool:
+        """Whether any document attached to this case is an official
+        registry extract (EGRUL/equivalent) naming `party_name` — used by
+        the Part 4 corporate-relationship evidence-gap check to distinguish
+        "we independently verified this party's own registry record" from
+        "we only ever saw the OTHER party's registry record." No document
+        role is dedicated to registry extracts (they're commonly attached as
+        role=OTHER), so this scans all of the case's document text rather
+        than filtering by role.
+        """
+        if not party_name:
+            return False
+        quoted_name_match = re.search(r'[«"]([^»"]+)[»"]', party_name)
+        distinguishing_name = quoted_name_match.group(1) if quoted_name_match else party_name
+        case_document_ids = (
+            await self._session.execute(select(CaseDocument.document_id).where(CaseDocument.case_id == case.id))
+        ).scalars().all()
+        for document_id in case_document_ids:
+            document = await self._session.get(Document, document_id)
+            if document is None or not document.extracted_text:
+                continue
+            text = document.extracted_text
+            if re.search(r"ЕГРЮЛ", text, re.IGNORECASE) and distinguishing_name.upper() in text.upper():
+                return True
+        return False
+
     async def get_master_report(self, case: Case) -> MasterCaseReport:
         """Top-level synthesis — zero LLM calls, everything below is a
         template rule keyed off already-persisted structured data. See
@@ -895,6 +954,19 @@ class LitigationCaseEngine:
         findings.extend(build_evidence_gap_findings(result_summary.missing_critical_evidence))
         findings.extend(build_corporate_relationship_findings(party_relationship_findings))
         findings.extend(build_related_litigation_findings(related_litigation_inputs))
+
+        corporate_relationship_gaps: list[EvidenceGap] = []
+        for rel_finding in party_relationship_findings:
+            subject_has_own_registry_doc = await self._has_registry_document_for(case, case.client_name)
+            corporate_relationship_gaps.extend(
+                evaluate_corporate_relationship_gaps(
+                    counterparty_relationship_found=True,
+                    subject_own_registry_document_present=subject_has_own_registry_doc,
+                    counterparty_name=rel_finding.related_party_name,
+                    subject_name=case.client_name or "the case's own client",
+                )
+            )
+        findings.extend(build_corporate_relationship_evidence_gap_findings(corporate_relationship_gaps))
 
         course_of_dealing_result = detect_course_of_dealing(money_flow.referenced_contract_dates, contract_version_matrix)
         course_of_dealing_finding = build_course_of_dealing_finding(course_of_dealing_result)
@@ -1024,4 +1096,115 @@ class LitigationCaseEngine:
             court_scenarios=court_scenarios, opposing_party_questions=opposing_party_questions,
             draft_response_structure=draft_response_structure, contract_version_matrix=contract_version_matrix,
             money_flow=money_flow, legal_kb_warning=result_summary.legal_kb_warning,
+        )
+
+    async def get_legal_theories(self, case: Case) -> list[LegalTheoryResult]:
+        """Legal Theory Layer (P1) — deliberately NOT part of get_master_report()'s
+        fast, zero-LLM, deterministic path: this makes a real call through
+        the shared LegalResearchEngine (the same engine
+        app/domains/contracts/risk_verification.py already uses for
+        fail-closed legal verification), which can take real time and real
+        money. Call this endpoint on demand, never automatically.
+
+        Every candidate's fact-pattern (supporting/contradicting facts,
+        alternative explanations, evidence gaps) is computed first in
+        legal_theory.py with zero LLM calls. A candidate is escalated to
+        LEGAL_THEORY only when the research engine returns a genuinely
+        VERIFIED citation; anything less — no citation, a MOCK-sourced
+        citation, or the engine's own "cannot conclude" response — is
+        classified COUNSEL_HYPOTHESIS. This never silently upgrades.
+        """
+        money_flow = await self.get_money_flow(case)
+        payments = [
+            PaymentSignal(payment_date=t.payment_date, amount=t.amount, referenced_contract_date=t.referenced_contract_date)
+            for t in money_flow.transactions
+        ]
+
+        contract_case_documents = (
+            await self._session.execute(
+                select(CaseDocument).where(CaseDocument.case_id == case.id, CaseDocument.role == CaseDocumentRole.CONTRACT)
+            )
+        ).scalars().all()
+        contract_documents: list[tuple[uuid.UUID, str, str]] = []
+        for cd in contract_case_documents:
+            document = await self._session.get(Document, cd.document_id)
+            if document is not None:
+                contract_documents.append((document.id, document.title, document.extracted_text or ""))
+        contract_matrix = build_contract_version_matrix(contract_documents)
+        contracts = [
+            ContractSignal(
+                document_title=t.document_title, amounts=t.amounts, maturity_dates=t.maturity_dates,
+                formation_clause_present=t.formation_clause_present, signature_status=t.signature_status,
+                notarized=t.notarized,
+            )
+            for t in contract_matrix
+        ]
+
+        candidate = evaluate_contract_formation_by_conduct(payments, contracts)
+        return [await self._verify_theory_candidate(candidate)]
+
+    async def _verify_theory_candidate(self, candidate: TheoryCandidate) -> LegalTheoryResult:
+        if not candidate.preconditions_met:
+            return LegalTheoryResult(
+                theory_name=candidate.name,
+                classification="counsel_hypothesis",
+                supporting_facts=candidate.supporting_facts,
+                contradicting_facts=candidate.contradicting_facts,
+                alternative_explanations=candidate.alternative_explanations,
+                evidence_gaps=candidate.evidence_gaps,
+                verified_legal_authority=[],
+                source_provenance="Fact pattern insufficient to warrant legal research — no qualifying evidence found in the case record.",
+                confidence="low",
+                additional_evidence_required=[g.missing_fact for g in candidate.evidence_gaps],
+                research_id=None,
+            )
+
+        engine = LegalResearchEngine(self._session, LLMGateway())
+        request = LegalResearchRequest(question=candidate.research_question, jurisdiction="RU")
+        result, trace = await engine.run(request)
+
+        rule_claims = [c for c in result.claims if c.claim_type == "rule"]
+        verified_citations = [
+            citation for c in rule_claims if c.verification_status == ClaimVerificationStatus.VERIFIED for citation in c.citations
+        ]
+        mock_citations = [
+            citation for c in rule_claims if c.verification_status == ClaimVerificationStatus.MOCK for citation in c.citations
+        ]
+
+        if verified_citations:
+            classification = "legal_theory"
+            confidence = result.confidence.value
+            provenance = (
+                f"Verified via LegalResearchEngine (research_id={trace.research_id}): "
+                f"{len(verified_citations)} verified citation(s)."
+            )
+        elif mock_citations:
+            classification = "counsel_hypothesis"
+            confidence = "low"
+            provenance = (
+                f"LegalResearchEngine (research_id={trace.research_id}) found only MOCK-sourced legal content — "
+                "not a verified legal authority. Fails closed: not promoted to a legal theory."
+            )
+        else:
+            classification = "counsel_hypothesis"
+            confidence = "low"
+            provenance = (
+                f"LegalResearchEngine (research_id={trace.research_id}) found no verified legal authority for this "
+                f"question (status={result.status}). Fails closed: not promoted to a legal theory."
+            )
+
+        additional_evidence = [g.missing_fact for g in candidate.evidence_gaps] + [mf.question for mf in result.missing_facts]
+
+        return LegalTheoryResult(
+            theory_name=candidate.name,
+            classification=classification,
+            supporting_facts=candidate.supporting_facts,
+            contradicting_facts=candidate.contradicting_facts,
+            alternative_explanations=candidate.alternative_explanations,
+            evidence_gaps=candidate.evidence_gaps,
+            verified_legal_authority=verified_citations,
+            source_provenance=provenance,
+            confidence=confidence,
+            additional_evidence_required=additional_evidence,
+            research_id=trace.research_id,
         )

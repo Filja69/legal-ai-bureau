@@ -425,6 +425,7 @@ class ContractVersionTermsOut(BaseModel):
     maturity_dates: list[str]
     formation_clause_present: bool
     signature_status: str
+    notarized: bool
 
 
 class MasterCaseReportOut(BaseModel):
@@ -438,3 +439,27 @@ class MasterCaseReportOut(BaseModel):
     contract_version_matrix: list[ContractVersionTermsOut]
     money_flow: MoneyFlowOut
     legal_kb_warning: str | None
+
+
+# --- Legal Theory Layer (P1) ---
+
+
+class EvidenceGapOut(BaseModel):
+    missing_fact: str
+    why_it_matters: str
+    could_be_proven_by: str
+    strengthens_theory_if_obtained: str
+
+
+class LegalTheoryOut(BaseModel):
+    theory_name: str
+    classification: str  # fact | inference | legal_theory | counsel_hypothesis
+    supporting_facts: list[str]
+    contradicting_facts: list[str]
+    alternative_explanations: list[str]
+    evidence_gaps: list[EvidenceGapOut]
+    verified_legal_authority: list[str]
+    source_provenance: str
+    confidence: str
+    additional_evidence_required: list[str]
+    research_id: str | None

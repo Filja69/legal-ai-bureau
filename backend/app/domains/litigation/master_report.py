@@ -41,6 +41,7 @@ from app.domains.litigation.contract_forensics import ContractVersionTerms
 from app.domains.litigation.contradiction_detector import ClaimEvidenceContradiction, ClaimTheoryTension
 from app.domains.litigation.course_of_dealing import CourseOfDealingResult
 from app.domains.litigation.interest_damages import InterestCalculationSummary, InterestClaimResult
+from app.domains.litigation.legal_theory import EvidenceGap
 from app.domains.litigation.notice_timeline import NoticeTimelineResult
 from app.domains.litigation.temporal_reasoning import TemporalIssue
 from app.models.matters import AllegationType
@@ -334,6 +335,32 @@ def build_corporate_relationship_findings(relationship_findings: list[PartyRelat
             verification_status=f.verification_status.value,
         )
         for i, f in enumerate(relationship_findings)
+    ]
+
+
+def build_corporate_relationship_evidence_gap_findings(gaps: list[EvidenceGap]) -> list[MasterFinding]:
+    """Part 4 of the P1 brief: when corporate-relationship evidence is
+    documented on only one side of a claimed dual-affiliation (the other
+    party's own registry extract was never uploaded), this produces an
+    explicit, structured gap — never a fabricated "the same individual also
+    controls the other company" inference. See legal_theory.py's
+    evaluate_corporate_relationship_gaps() for how the gap is detected.
+    """
+    return [
+        MasterFinding(
+            id=f"corporate_relationship_gap:{i}",
+            category=FindingCategory.EVIDENCE_GAP,
+            title=f"Evidence gap: {gap.missing_fact}",
+            statement=gap.why_it_matters,
+            helps_side="unclear", hurts_side="unclear", strength="HIGH",
+            confidence="Deterministic — computed from which document roles/content are and are not present in the case record.",
+            legal_significance=gap.why_it_matters,
+            caveat="This is an explicit gap, not an inference — the missing fact is not assumed true or false.",
+            missing_evidence=[gap.could_be_proven_by],
+            recommended_action=f"Obtain: {gap.could_be_proven_by} (would strengthen the theory: {gap.strengthens_theory_if_obtained}).",
+            verification_status="unverified",
+        )
+        for i, gap in enumerate(gaps)
     ]
 
 
