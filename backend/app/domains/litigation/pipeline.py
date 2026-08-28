@@ -858,22 +858,42 @@ class LitigationCaseEngine:
         "we independently verified this party's own registry record" from
         "we only ever saw the OTHER party's registry record." No document
         role is dedicated to registry extracts (they're commonly attached as
-        role=OTHER), so this scans all of the case's document text rather
-        than filtering by role.
+        role=OTHER), so this scans document text rather than filtering by
+        a specific role.
+
+        Two deliberate precision guards, both found necessary against the
+        real case: a CLAIM's own "Приложения" (attachments) list routinely
+        NAMES a registry extract it says was filed with the court ("Выписка
+        из ЕГРЮЛ ООО «...»;") without that extract's actual content ever
+        being independently uploaded to THIS case — that is the claimant's
+        own assertion about what it attached, not evidence in our
+        possession, and must not satisfy this check. So: (1) pleading-role
+        documents (CLAIM/RESPONSE/COURT_FILING — argumentative filings, not
+        documentary evidence) are excluded from the scan entirely; (2) the
+        matched document must also contain "ОГРН" — a registry extract's
+        near-universal header field that a one-line mention in an
+        attachments list would not carry.
         """
         if not party_name:
             return False
         quoted_name_match = re.search(r'[«"]([^»"]+)[»"]', party_name)
         distinguishing_name = quoted_name_match.group(1) if quoted_name_match else party_name
-        case_document_ids = (
-            await self._session.execute(select(CaseDocument.document_id).where(CaseDocument.case_id == case.id))
+        _PLEADING_ROLES = (CaseDocumentRole.CLAIM, CaseDocumentRole.RESPONSE, CaseDocumentRole.COURT_FILING)
+        case_documents = (
+            await self._session.execute(
+                select(CaseDocument).where(CaseDocument.case_id == case.id, CaseDocument.role.notin_(_PLEADING_ROLES))
+            )
         ).scalars().all()
-        for document_id in case_document_ids:
-            document = await self._session.get(Document, document_id)
+        for cd in case_documents:
+            document = await self._session.get(Document, cd.document_id)
             if document is None or not document.extracted_text:
                 continue
             text = document.extracted_text
-            if re.search(r"ЕГРЮЛ", text, re.IGNORECASE) and distinguishing_name.upper() in text.upper():
+            if (
+                re.search(r"ЕГРЮЛ", text, re.IGNORECASE)
+                and re.search(r"ОГРН", text, re.IGNORECASE)
+                and distinguishing_name.upper() in text.upper()
+            ):
                 return True
         return False
 

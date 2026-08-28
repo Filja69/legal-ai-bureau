@@ -348,7 +348,7 @@ async def test_corporate_relationship_gap_when_only_counterparty_registry_upload
 
     counterparty_egrul_id = await _upload_ready_document(
         client, workspace.id, "counterparty_egrul.txt",
-        "Выписка из ЕГРЮЛ. ООО «Контрагент Синтетик». Участник: Петров П.П., доля 10%.",
+        "Выписка из ЕГРЮЛ. ОГРН 1027700123456. ООО «Контрагент Синтетик». Участник: Петров П.П., доля 10%.",
     )
     await _attach(client, workspace.id, case_id, counterparty_egrul_id, "other")
 
@@ -363,7 +363,7 @@ async def test_corporate_relationship_gap_when_only_counterparty_registry_upload
 
     client_egrul_id = await _upload_ready_document(
         client, workspace.id, "client_egrul.txt",
-        "Выписка из ЕГРЮЛ. ООО «Клиент Синтетик». Генеральный директор: Петров П.П.",
+        "Выписка из ЕГРЮЛ. ОГРН 1027700654321. ООО «Клиент Синтетик». Генеральный директор: Петров П.П.",
     )
     await _attach(client, workspace.id, case_id, client_egrul_id, "other")
 
@@ -415,7 +415,7 @@ async def test_corporate_relationship_gap_when_relationship_documents_the_client
 
     client_egrul_id = await _upload_ready_document(
         client, workspace.id, "client_egrul.txt",
-        "Выписка из ЕГРЮЛ. ООО «Клиент Реверс». Генеральный директор: Сидоров С.С.",
+        "Выписка из ЕГРЮЛ. ОГРН 1027700987654. ООО «Клиент Реверс». Генеральный директор: Сидоров С.С.",
     )
     await _attach(client, workspace.id, case_id, client_egrul_id, "other")
 
@@ -429,3 +429,62 @@ async def test_corporate_relationship_gap_when_relationship_documents_the_client
     # the client (whose registry doc already exists in the case record).
     combined_text = gap_findings[0]["title"] + gap_findings[0]["statement"]
     assert "ООО «Контрагент Реверс»" in combined_text
+
+
+@pytest.mark.asyncio
+async def test_claim_document_mentioning_an_attachment_is_not_treated_as_possessing_it(client, db_session):
+    """Regression for a real bug: a CLAIM document's own "Приложения"
+    (attachments) list routinely NAMES a registry extract it says was filed
+    with the court ("Выписка из ЕГРЮЛ ООО «...»;") without that extract's
+    actual content ever being independently uploaded to this case — that is
+    the claimant's own assertion about what IT attached, not evidence in
+    our possession. This must not satisfy the registry-document check and
+    must not silently suppress the evidence gap.
+    """
+    _org, workspace = await make_org_and_workspace(db_session)
+    await db_session.commit()
+    headers = {"X-Workspace-Id": str(workspace.id)}
+
+    create_resp = await client.post(
+        "/api/v1/legal/cases",
+        json={
+            "title": "Synthetic Claim Attachment Case", "client_name": "ООО «Клиент Заявка»",
+            "counterparty_name": "ООО «Контрагент Заявка»",
+        },
+        headers=headers,
+    )
+    assert create_resp.status_code == 201
+    case_id = create_resp.json()["id"]
+
+    person_id = await _add_party(client, workspace.id, case_id, "Смирнов А.А.", "individual", "unknown")
+    client_party_id = await _add_party(client, workspace.id, case_id, "ООО «Клиент Заявка»", "organization", "defendant")
+    await client.post(
+        f"/api/v1/legal/cases/{case_id}/party-relationships",
+        json={
+            "subject_party_id": person_id, "related_party_id": client_party_id, "relationship_type": "director",
+            "start_date": "2023-01-01", "verification_status": "document_supported",
+        },
+        headers=headers,
+    )
+
+    # The claim's own attachments list NAMES a registry extract for the
+    # counterparty ("Контрагент Заявка") — but that extract was never
+    # actually uploaded as its own document.
+    claim_text = (
+        "Исковое заявление о взыскании задолженности.\n"
+        "Приложения:\n"
+        "1. Платежные поручения;\n"
+        "2. Выписка из ЕГРЮЛ ООО «Клиент Заявка»;\n"
+        "3. Выписка из ЕГРЮЛ ООО «Контрагент Заявка»;\n"
+    )
+    claim_id = await _upload_ready_document(client, workspace.id, "claim.txt", claim_text)
+    await _attach(client, workspace.id, case_id, claim_id, "claim")
+
+    analyze = await client.post(f"/api/v1/legal/cases/{case_id}/analyze", headers=headers)
+    assert analyze.status_code == 200
+
+    report = await client.get(f"/api/v1/legal/cases/{case_id}/master-report", headers=headers)
+    gap_findings = [f for f in report.json()["findings"] if f["id"].startswith("corporate_relationship_gap:")]
+    assert len(gap_findings) == 1
+    combined_text = gap_findings[0]["title"] + gap_findings[0]["statement"]
+    assert "ООО «Контрагент Заявка»" in combined_text
