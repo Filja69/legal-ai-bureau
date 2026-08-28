@@ -30,8 +30,18 @@ _MATURITY_CONTEXT_PATTERN = re.compile(r"(?:возврат[а-яё]*|срок[а
 # A notarized instrument is materially stronger formation evidence than an
 # unsigned draft — see legal_theory.py's contract-formation-by-conduct
 # evaluator, which treats this as one of its named factors.
+#
+# The second alternative — "нотариусом разъяснено/разъяснены/разъяснена"
+# ("explained by the notary to the parties") — is the standard closing
+# clause a notary is required to include when certifying an instrument
+# (Fundamentals of Notary Legislation, е.g. Art. 54: the notary must
+# explain the transaction's legal consequences to the parties). It is a
+# real, generic notarization marker distinct from "удостоверен нотариусом"
+# — found live on an actual notarized loan agreement whose text never uses
+# the "удостоверен" verb at all.
 _NOTARIZATION_PATTERN = re.compile(
-    r"удостовер[а-яё]*\s+нотариус[а-яё]*|нотариальн[а-яё]*\s+удостовер[а-яё]*|нотариально\s+удостовер[а-яё]*",
+    r"удостовер[а-яё]*\s+нотариус[а-яё]*|нотариальн[а-яё]*\s+удостовер[а-яё]*|нотариально\s+удостовер[а-яё]*"
+    r"|нотариусом\s+разъясн[а-яё]*",
     re.IGNORECASE,
 )
 

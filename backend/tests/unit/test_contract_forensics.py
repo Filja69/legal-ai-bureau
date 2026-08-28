@@ -27,3 +27,19 @@ def test_plain_unsigned_draft_is_not_notarized():
     text = "Проект договора займа (не подписан). Займодавец передает Заемщику 1 000 000 рублей."
     terms = extract_contract_terms(_DOC_ID, "draft.pdf", text)
     assert terms.notarized is False
+
+
+def test_notary_explanation_clause_is_detected_as_notarization():
+    """The standard closing clause a notary is required to include when
+    certifying an instrument ('explained to the parties by the notary') is
+    a real, generic notarization marker distinct from 'удостоверен
+    нотариусом' — found on a real notarized agreement whose text never uses
+    the 'удостоверен' verb at all.
+    """
+    text = (
+        "Содержание статей 1, 17, 163, 166, 167, 395, 421, 431.2, 432-434, 450-453, 807-814 "
+        "Гражданского кодекса Российской Федерации, статей 22.1, 89 Основ законодательства "
+        "Российской Федерации о нотариате Сторонам нотариусом разъяснено и понятно."
+    )
+    terms = extract_contract_terms(_DOC_ID, "notarized_closing.pdf", text)
+    assert terms.notarized is True
