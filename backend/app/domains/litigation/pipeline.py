@@ -19,7 +19,13 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domains.legal_research.engine import LegalResearchEngine
-from app.domains.legal_research.models import ClaimVerificationStatus, LegalResearchRequest
+from app.domains.legal_research.models import (
+    CaseLawRelevance,
+    ClaimVerificationStatus,
+    LegalClaim,
+    LegalResearchRequest,
+    LegalResearchResult,
+)
 from app.domains.litigation.allegation_extractor import ALLEGATION_ELIGIBLE_ROLES, extract_allegation_candidates
 from app.domains.litigation.case_relationships import (
     CaseHypothesisInput,
@@ -145,10 +151,67 @@ class MoneyFlowSummary:
 
 
 @dataclass
+class AppliedRule:
+    """One statute/code-article claim from LegalResearchResult that resolved
+    to something real — independently re-verified by CitationValidator, never
+    trusted from the LLM's own citation alone. A rule claim that did NOT
+    resolve never appears here; see UnverifiedAuthority instead (P2 §6).
+    """
+
+    citation: str
+    text: str
+    verification_status: str  # "verified" | "mock"
+    provenance: str
+
+
+@dataclass
+class AppliedCaseLaw:
+    """One court-decision claim whose existence/source was independently
+    confirmed by CitationValidator.validate_case_law(), enriched with the
+    case-law relevance assessment (P2 §7) when one was produced. `stance`
+    stays "unassessed" when no relevance assessment matched this citation —
+    the decision is still real, it just hasn't been characterized.
+    """
+
+    case_number: str
+    text: str
+    verification_status: str  # "verified" | "mock"
+    court_level_label: str | None = None
+    decision_date: str | None = None
+    outcome: str | None = None
+    stance: str = "unassessed"  # "supports" | "against" | "distinguishable" | "unclear" | "unassessed"
+    factual_similarity: str = "unassessed"
+    legal_issue_similarity: str = "unassessed"
+    distinguishing_facts: list[str] = field(default_factory=list)
+    remains_useful: bool = True
+
+
+@dataclass
+class UnverifiedAuthority:
+    """A citation the LLM's reasoning referenced whose existence/authority
+    could NOT be independently confirmed against the Knowledge Base — P2 §6's
+    "no citation laundering" requirement. Never counted toward a theory's
+    support; surfaced so a lawyer sees exactly what was claimed but not
+    verifiable, rather than that claim silently vanishing.
+    """
+
+    attempted_citation: str
+    claim_type: str  # "rule" | "case_law"
+    reason: str
+
+
+@dataclass
 class LegalTheoryResult:
     """See legal_theory.py's module docstring and get_legal_theories() below
     for the fail-closed discipline this carries: `classification` is only
-    ever "legal_theory" when `verified_legal_authority` is non-empty.
+    ever "legal_theory" when `verified_legal_authority` is non-empty, and
+    that gate is deliberately based on verified RULE (statute/code) citations
+    only — verified case law is real supporting/adverse context (Russian
+    civil law is not a binding-precedent system), never by itself enough to
+    promote a candidate to a verified legal theory. This keeps the P1 gate's
+    provenance strength unweakened while P2 adds the richer citation-grounded
+    detail (FACTS -> CANDIDATE THEORY -> LEGAL RESEARCH -> AUTHORITIES ->
+    COUNTER-AUTHORITIES -> VERIFIED LEGAL THEORY) around it.
     """
 
     theory_name: str
@@ -162,6 +225,135 @@ class LegalTheoryResult:
     confidence: str
     additional_evidence_required: list[str]
     research_id: str | None
+    applicable_rules: list[AppliedRule] = field(default_factory=list)
+    supporting_case_law: list[AppliedCaseLaw] = field(default_factory=list)
+    adverse_case_law: list[AppliedCaseLaw] = field(default_factory=list)
+    uncharacterized_case_law: list[AppliedCaseLaw] = field(default_factory=list)
+    unverified_authorities: list[UnverifiedAuthority] = field(default_factory=list)
+    reasoning: str = ""
+    adverse_arguments: list[str] = field(default_factory=list)
+    unresolved_legal_questions: list[str] = field(default_factory=list)
+
+
+def _build_applicable_rules(rule_claims: list[LegalClaim]) -> list[AppliedRule]:
+    """Only rule claims that actually resolved (VERIFIED or MOCK) — an
+    unresolved one is never "applicable", it's an UnverifiedAuthority.
+    """
+    rules: list[AppliedRule] = []
+    for claim in rule_claims:
+        if claim.verification_status not in (ClaimVerificationStatus.VERIFIED, ClaimVerificationStatus.MOCK):
+            continue
+        citation = claim.citations[0] if claim.citations else claim.claim.split(":", 1)[0].strip()
+        if claim.verification_status == ClaimVerificationStatus.VERIFIED:
+            provenance = "Проверено по Базе Знаний: статья найдена, источник официальный или лицензированный."
+        else:
+            provenance = (
+                "Источник — демонстрационные (mock) данные, официально не подтвержден. "
+                "Не может служить обоснованием правовой позиции."
+            )
+        rules.append(
+            AppliedRule(citation=citation, text=claim.claim, verification_status=claim.verification_status.value, provenance=provenance)
+        )
+    return rules
+
+
+def _build_unverified_authorities(claims: list[LegalClaim]) -> list[UnverifiedAuthority]:
+    """P2 §6 — no citation laundering: every rule/case-law claim the
+    reasoning referenced but that CitationValidator could not confirm is
+    surfaced explicitly rather than silently disappearing.
+    """
+    authorities: list[UnverifiedAuthority] = []
+    for claim in claims:
+        if claim.verification_status != ClaimVerificationStatus.UNVERIFIED:
+            continue
+        authorities.append(
+            UnverifiedAuthority(
+                attempted_citation=claim.claim.split(":", 1)[0].strip(),
+                claim_type=claim.claim_type,
+                reason=(
+                    "Цитата упомянута в рассуждении, но не подтверждена независимой проверкой "
+                    "(CitationValidator) — не учитывается в обосновании правовой позиции."
+                ),
+            )
+        )
+    return authorities
+
+
+def _build_case_law_sections(
+    case_law_claims: list[LegalClaim], relevance_by_case: dict[str, CaseLawRelevance]
+) -> tuple[list[AppliedCaseLaw], list[AppliedCaseLaw], list[AppliedCaseLaw]]:
+    """Splits already citation-validated (VERIFIED/MOCK) case law into
+    supporting / adverse-or-distinguishable / uncharacterized, based on the
+    P2 §7 relevance assessment's `stance` when one was produced. A verified
+    decision with no matching relevance entry (assessment failed, or ran
+    under LLM_PROVIDER=mock) still gets reported — as uncharacterized, never
+    dropped and never guessed into a stance it wasn't actually assessed for.
+    """
+    supporting: list[AppliedCaseLaw] = []
+    adverse: list[AppliedCaseLaw] = []
+    uncharacterized: list[AppliedCaseLaw] = []
+    seen: set[str] = set()
+    for claim in case_law_claims:
+        if claim.verification_status not in (ClaimVerificationStatus.VERIFIED, ClaimVerificationStatus.MOCK):
+            continue
+        for case_number in claim.citations:
+            if case_number in seen:
+                continue
+            seen.add(case_number)
+            relevance = relevance_by_case.get(case_number)
+            if relevance is None or not relevance.assessed:
+                uncharacterized.append(
+                    AppliedCaseLaw(case_number=case_number, text=claim.claim, verification_status=claim.verification_status.value)
+                )
+                continue
+            applied = AppliedCaseLaw(
+                case_number=case_number,
+                text=claim.claim,
+                verification_status=claim.verification_status.value,
+                court_level_label=relevance.court_level_label,
+                decision_date=relevance.decision_date,
+                outcome=relevance.outcome,
+                stance=relevance.stance,
+                factual_similarity=relevance.factual_similarity,
+                legal_issue_similarity=relevance.legal_issue_similarity,
+                distinguishing_facts=relevance.distinguishing_facts,
+                remains_useful=relevance.remains_useful,
+            )
+            if relevance.stance == "supports":
+                supporting.append(applied)
+            elif relevance.stance in ("against", "distinguishable"):
+                adverse.append(applied)
+            else:
+                uncharacterized.append(applied)
+    return supporting, adverse, uncharacterized
+
+
+def _build_adverse_arguments(result: LegalResearchResult) -> list[str]:
+    """P2 §10 — adversarial research output, surfaced honestly as RETRIEVED
+    counter-material (never independently citation-validated the way rule/
+    case-law claims are), plus any deterministically detected conflicts.
+    """
+    arguments = list(result.counterarguments)
+    for conflict in result.conflicts:
+        note = f"{conflict.description} — Позиция А: {conflict.position_a} / Позиция Б: {conflict.position_b}."
+        if conflict.implication:
+            note += f" {conflict.implication}"
+        arguments.append(note)
+    return arguments
+
+
+def _build_unresolved_questions(result: LegalResearchResult) -> list[str]:
+    seen: set[str] = set()
+    questions: list[str] = []
+    for missing_fact in result.missing_facts:
+        if missing_fact.question not in seen:
+            seen.add(missing_fact.question)
+            questions.append(missing_fact.question)
+    for reason in result.escalation_reasons:
+        if reason not in seen:
+            seen.add(reason)
+            questions.append(reason)
+    return questions
 
 
 class LitigationCaseEngine:
@@ -1199,6 +1391,7 @@ class LitigationCaseEngine:
         result, trace = await engine.run(request)
 
         rule_claims = [c for c in result.claims if c.claim_type == "rule"]
+        case_law_claims = [c for c in result.claims if c.claim_type == "case_law"]
         verified_citations = [
             citation for c in rule_claims if c.verification_status == ClaimVerificationStatus.VERIFIED for citation in c.citations
         ]
@@ -1206,6 +1399,14 @@ class LitigationCaseEngine:
             citation for c in rule_claims if c.verification_status == ClaimVerificationStatus.MOCK for citation in c.citations
         ]
 
+        # The legal_theory promotion gate looks at verified RULE (statute/
+        # code) citations only — deliberately unchanged from P1. Russian
+        # civil law is not a binding-precedent system, so verified case law
+        # is real, useful context (see supporting/adverse_case_law below) but
+        # is never by itself enough to promote a candidate past
+        # counsel_hypothesis. Widening this gate to count case law would
+        # weaken the provenance bar P2's hard constraints explicitly forbid
+        # weakening in order to inflate coverage.
         if verified_citations:
             classification = "legal_theory"
             confidence = result.confidence.value
@@ -1230,6 +1431,11 @@ class LitigationCaseEngine:
 
         additional_evidence = [g.missing_fact for g in candidate.evidence_gaps] + [mf.question for mf in result.missing_facts]
 
+        relevance_by_case = {r.case_number: r for r in result.case_law_relevance}
+        supporting_case_law, adverse_case_law, uncharacterized_case_law = _build_case_law_sections(
+            case_law_claims, relevance_by_case
+        )
+
         return LegalTheoryResult(
             theory_name=candidate.name,
             classification=classification,
@@ -1242,4 +1448,12 @@ class LitigationCaseEngine:
             confidence=confidence,
             additional_evidence_required=additional_evidence,
             research_id=trace.research_id,
+            applicable_rules=_build_applicable_rules(rule_claims),
+            supporting_case_law=supporting_case_law,
+            adverse_case_law=adverse_case_law,
+            uncharacterized_case_law=uncharacterized_case_law,
+            unverified_authorities=_build_unverified_authorities(rule_claims + case_law_claims),
+            reasoning="\n\n".join(result.analysis),
+            adverse_arguments=_build_adverse_arguments(result),
+            unresolved_legal_questions=_build_unresolved_questions(result),
         )

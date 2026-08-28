@@ -271,6 +271,28 @@ class ReviewFindings:
 
 
 @dataclass
+class CaseLawRelevance:
+    """Whether a citation-VALIDATED court decision (existence and provenance
+    already confirmed by CitationValidator) actually bears on the question —
+    keyword retrieval and authority ranking alone don't answer that. See
+    case_law_relevance.py for how this gets filled in; never itself a new
+    citation, only a characterization of one already established as real.
+    """
+
+    case_number: str
+    court_level_label: str
+    decision_date: str | None
+    outcome: str | None
+    factual_similarity: str  # "high" | "medium" | "low" | "unassessed"
+    legal_issue_similarity: str
+    procedural_posture_note: str
+    stance: str  # "supports" | "against" | "distinguishable" | "unclear" | "unassessed"
+    distinguishing_facts: list[str] = field(default_factory=list)
+    remains_useful: bool = True
+    assessed: bool = True
+
+
+@dataclass
 class LegalResearchResult:
     executive_conclusion: str
     confidence: ConfidenceLevel
@@ -288,6 +310,7 @@ class LegalResearchResult:
     escalate_to_human: bool = False
     escalation_reasons: list[str] = field(default_factory=list)
     status: str = "completed"  # "completed" | "research_failed" | "blocked_unverified_claim"
+    case_law_relevance: list[CaseLawRelevance] = field(default_factory=list)
 
 
 @dataclass

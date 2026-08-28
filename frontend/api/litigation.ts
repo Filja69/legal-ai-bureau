@@ -11,6 +11,7 @@ import type {
   CaseParty,
   CaseResultSummary,
   EvidenceMatrixRow,
+  LegalTheory,
   MasterCaseReport,
   PartyType,
   ProceduralRole,
@@ -95,5 +96,13 @@ export async function getCaseResultSummary(workspaceId: string, caseId: string):
 
 export async function getCaseMasterReport(workspaceId: string, caseId: string): Promise<MasterCaseReport> {
   const { data } = await apiClient.get<MasterCaseReport>(`/api/v1/legal/cases/${caseId}/master-report`, withWorkspace(workspaceId));
+  return data;
+}
+
+// Deliberately never called automatically alongside the master report — this
+// makes a real LegalResearchEngine call (real LLM usage, can take real time
+// and real money). Only ever triggered by an explicit user action.
+export async function getCaseLegalTheories(workspaceId: string, caseId: string): Promise<LegalTheory[]> {
+  const { data } = await apiClient.post<LegalTheory[]>(`/api/v1/legal/cases/${caseId}/legal-theories`, {}, withWorkspace(workspaceId));
   return data;
 }

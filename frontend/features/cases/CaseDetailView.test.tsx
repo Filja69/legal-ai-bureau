@@ -203,6 +203,75 @@ describe("CaseDetailView", () => {
     expect(screen.getByText(/Требует проверки: История ЕГРЮЛ/)).toBeInTheDocument();
   });
 
+  it("Legal Theories tab runs on demand and distinguishes verified theory, unverified authority, and case-law stance", async () => {
+    vi.spyOn(legalApi, "getCase").mockResolvedValue(baseCase());
+    vi.spyOn(litigationApi, "getCaseLegalTheories").mockResolvedValue([
+      {
+        theory_name: "Contract formation/performance through the conduct of the parties",
+        classification: "legal_theory",
+        supporting_facts: ["Repeated payments referencing the same draft agreement"],
+        contradicting_facts: ["Draft agreement was never signed"],
+        alternative_explanations: ["Payments could reflect an unrelated obligation"],
+        evidence_gaps: [],
+        verified_legal_authority: ["ст. 432 ГК РФ"],
+        source_provenance: "Verified via LegalResearchEngine (research_id=r1): 1 verified citation(s).",
+        confidence: "medium",
+        additional_evidence_required: [],
+        research_id: "r1",
+        applicable_rules: [
+          { citation: "ст. 432 ГК РФ", text: "ст. 432 ГК РФ: существенные условия договора", verification_status: "verified", provenance: "Проверено по Базе Знаний: статья найдена, источник официальный или лицензированный." },
+        ],
+        supporting_case_law: [
+          {
+            case_number: "А40-1/2024", text: "А40-1/2024: суд признал договор заключенным по факту исполнения", verification_status: "verified",
+            court_level_label: "АС г. Москвы", decision_date: "2024-01-01", outcome: "granted", stance: "supports",
+            factual_similarity: "high", legal_issue_similarity: "high", distinguishing_facts: [], remains_useful: true,
+          },
+        ],
+        adverse_case_law: [
+          {
+            case_number: "А40-2/2024", text: "А40-2/2024: суд отказал в аналогичном требовании", verification_status: "verified",
+            court_level_label: "АС г. Москвы", decision_date: "2023-05-01", outcome: "denied", stance: "against",
+            factual_similarity: "medium", legal_issue_similarity: "high", distinguishing_facts: ["Другая сумма договора"], remains_useful: true,
+          },
+        ],
+        uncharacterized_case_law: [],
+        unverified_authorities: [
+          { attempted_citation: "ст. 99999 ГК РФ", claim_type: "rule", reason: "Цитата упомянута в рассуждении, но не подтверждена независимой проверкой (CitationValidator) — не учитывается в обосновании правовой позиции." },
+        ],
+        reasoning: "Повторяющиеся платежи со ссылкой на один и тот же проект договора указывают на его исполнение сторонами.",
+        adverse_arguments: ["ст. 1102 ГК РФ: платежи могут быть неосновательным обогащением, если договор не был заключен"],
+        unresolved_legal_questions: ["Была ли договоренность впоследствии оформлена нотариально?"],
+      },
+      {
+        theory_name: "Alternative hypothesis with no legal authority found",
+        classification: "counsel_hypothesis",
+        supporting_facts: [], contradicting_facts: [], alternative_explanations: [], evidence_gaps: [],
+        verified_legal_authority: [], source_provenance: "LegalResearchEngine found no verified legal authority for this question. Fails closed.",
+        confidence: "low", additional_evidence_required: [], research_id: "r2",
+        applicable_rules: [], supporting_case_law: [], adverse_case_law: [], uncharacterized_case_law: [],
+        unverified_authorities: [], reasoning: "", adverse_arguments: [], unresolved_legal_questions: [],
+      },
+    ]);
+
+    render(<CaseDetailView caseId="case-1" />, { wrapper });
+    await waitFor(() => expect(screen.getByText("Test Dispute")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Legal Theories" }));
+
+    expect(litigationApi.getCaseLegalTheories).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Запустить правовой анализ" }));
+
+    await waitFor(() => expect(screen.getByText("Contract formation/performance through the conduct of the parties")).toBeInTheDocument());
+    expect(screen.getByText("Подтвержденная правовая теория")).toBeInTheDocument();
+    expect(screen.getByText("Гипотеза юриста — не подтверждено")).toBeInTheDocument();
+    expect(screen.getByText("ст. 99999 ГК РФ")).toBeInTheDocument();
+    expect(screen.getByText("Неподтвержденный источник")).toBeInTheDocument();
+    expect(screen.getByText(/Дело № А40-1\/2024/)).toBeInTheDocument();
+    expect(screen.getByText(/Дело № А40-2\/2024/)).toBeInTheDocument();
+    expect(screen.getByText("Подтверждает позицию")).toBeInTheDocument();
+    expect(screen.getByText("Против позиции")).toBeInTheDocument();
+  });
+
   it("timeline shows event date type badges (EXACT vs UNKNOWN)", async () => {
     vi.spyOn(legalApi, "getCase").mockResolvedValue(baseCase());
     vi.spyOn(litigationApi, "getCaseTimeline").mockResolvedValue([

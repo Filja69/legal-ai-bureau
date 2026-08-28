@@ -11,6 +11,7 @@ import {
   attachCaseDocument,
   extractCaseFacts,
   getCaseEvidenceMatrix,
+  getCaseLegalTheories,
   getCaseMasterReport,
   getCaseResultSummary,
   getCaseTimeline,
@@ -20,11 +21,12 @@ import {
 } from "@/api/litigation";
 import { listResearchReports } from "@/api/research";
 import { useAuth } from "@/hooks/useAuth";
-import type { CaseDocumentRole } from "@/types/litigation";
+import type { CaseDocumentRole, LegalTheory } from "@/types/litigation";
 import { Badge, Button, Card, CardHeader, Notice, PageHeader, RankedItem, RankedList, TableWrap, Td, Th, Timeline, TimelineRow, toneForSeverity } from "@/components/ui";
 import { MasterReportSection } from "./MasterReportSection";
+import { LegalTheorySection } from "./LegalTheorySection";
 
-const TABS = ["Overview", "Documents", "Facts", "Timeline", "Evidence", "Issues", "Research", "Strategy", "Drafts"] as const;
+const TABS = ["Overview", "Documents", "Facts", "Timeline", "Evidence", "Issues", "Research", "Legal Theories", "Strategy", "Drafts"] as const;
 type Tab = (typeof TABS)[number];
 
 // Tabs whose backing engine is explicitly out of scope this phase (brief §58's
@@ -51,6 +53,9 @@ export function CaseDetailView({ caseId }: { caseId: string }) {
   const [error, setError] = useState<string | null>(null);
   const [extracting, setExtracting] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
+  const [legalTheories, setLegalTheories] = useState<LegalTheory[] | null>(null);
+  const [runningLegalTheories, setRunningLegalTheories] = useState(false);
+  const [legalTheoriesError, setLegalTheoriesError] = useState<string | null>(null);
 
   const caseQuery = useQuery({
     queryKey: ["case", workspaceId, caseId],
@@ -154,6 +159,22 @@ export function CaseDetailView({ caseId }: { caseId: string }) {
       setError("Analysis failed.");
     } finally {
       setAnalyzing(false);
+    }
+  }
+
+  // Never triggered automatically — real LegalResearchEngine calls (real LLM
+  // usage, real time/cost), run only on this explicit user action.
+  async function handleRunLegalTheories() {
+    if (!workspaceId) return;
+    setRunningLegalTheories(true);
+    setLegalTheoriesError(null);
+    try {
+      const theories = await getCaseLegalTheories(workspaceId, caseId);
+      setLegalTheories(theories);
+    } catch {
+      setLegalTheoriesError("Legal research failed — see server logs.");
+    } finally {
+      setRunningLegalTheories(false);
     }
   }
 
@@ -473,6 +494,24 @@ export function CaseDetailView({ caseId }: { caseId: string }) {
               Run new research for this case →
             </Link>
           </Card>
+        )}
+
+        {tab === "Legal Theories" && (
+          <div className="space-y-4">
+            <Card>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <p className="text-xs text-muted">
+                  Запускает независимую правовую проверку по фактам дела (реальные вызовы LLM и Базы Знаний, может занять
+                  несколько минут). Не запускается автоматически.
+                </p>
+                <Button variant="primary" onClick={handleRunLegalTheories} disabled={runningLegalTheories}>
+                  {runningLegalTheories ? "Анализируем…" : "Запустить правовой анализ"}
+                </Button>
+              </div>
+            </Card>
+            {legalTheoriesError && <Notice tone="danger">{legalTheoriesError}</Notice>}
+            {legalTheories && <LegalTheorySection theories={legalTheories} />}
+          </div>
         )}
 
         {NOT_YET_AVAILABLE[tab] && <Notice tone="info">{NOT_YET_AVAILABLE[tab]}</Notice>}

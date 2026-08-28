@@ -100,3 +100,72 @@ async def test_reasoner_never_cites_unverifiable_article(db_session, indexed_dat
     rule_claims = [c for c in claims if c.claim_type == "rule"]
     assert rule_claims[0].verification_status == ClaimVerificationStatus.UNVERIFIED
     assert rule_claims[0].citations == []
+
+
+# --- Case-law claims (P2) ---
+
+
+@pytest.mark.asyncio
+async def test_reasoner_produces_verified_case_law_claim_for_a_real_decision(db_session):
+    """A retrieved court-decision chunk must be independently re-verified
+    against the Knowledge Base (case_number resolution + source trust) the
+    same way a statute citation is — never trusted from retrieval alone.
+    """
+    from app.models.case_law import Court, CourtDecision, CourtLevel
+    from app.models.legal_knowledge import LegalDocument, LegalDocumentType
+
+    source = LegalSource(name="Official Court DB", type=SourceType.COURT, is_official=True)
+    db_session.add(source)
+    await db_session.flush()
+    court = Court(name="АС г. Москвы", level=CourtLevel.FIRST_INSTANCE, jurisdiction="RU")
+    db_session.add(court)
+    await db_session.flush()
+    document = LegalDocument(
+        title="Решение по делу А40-5555/2024", document_type=LegalDocumentType.COURT_DECISION,
+        source_id=source.id, content="Суд отклонил довод о преждевременности требования.",
+    )
+    db_session.add(document)
+    await db_session.flush()
+    decision = CourtDecision(
+        document_id=document.id, court_id=court.id, case_number="А40-5555/2024", decision_date="2024-01-01",
+        claim_summary="Иск о взыскании долга.", decision_summary="Иск удовлетворен.",
+        legal_reasoning="Суд отклонил довод о преждевременности требования.", outcome="granted",
+    )
+    db_session.add(decision)
+    await db_session.flush()
+
+    from app.domains.legal_research.models import EvidenceItem
+
+    case_law_item = EvidenceItem(
+        source=str(source.id), citation="А40-5555/2024", text="Суд отклонил довод о преждевременности требования.",
+        retrieval_score=1.0, retrieval_method=["exact"],
+        metadata={"chunk_type": "court_decision", "court_decision_id": str(decision.id), "case_number": "А40-5555/2024"},
+    )
+
+    issue = LegalIssue(id="1", title="Преждевременность требования", description="d", priority=1)
+    reasoner = LegalReasoner(db_session, LLMGateway(provider=MockLLMProvider()))
+    claims, _ = await reasoner.reason(issue, [case_law_item], facts=[], effective_at=None)
+
+    case_law_claims = [c for c in claims if c.claim_type == "case_law"]
+    assert len(case_law_claims) == 1
+    assert case_law_claims[0].verification_status == ClaimVerificationStatus.VERIFIED
+    assert case_law_claims[0].citations == ["А40-5555/2024"]
+
+
+@pytest.mark.asyncio
+async def test_reasoner_never_cites_a_fabricated_case_number(db_session):
+    """A case number that resolves to nothing in the Knowledge Base — the
+    LLM inventing a plausible-looking citation — must never be trusted."""
+    from app.domains.legal_research.models import EvidenceItem
+
+    fabricated = EvidenceItem(
+        source="s", citation="А99-9999/2099", text="fabricated reasoning", retrieval_score=1.0,
+        retrieval_method=["exact"], metadata={"chunk_type": "court_decision", "case_number": "А99-9999/2099"},
+    )
+    issue = LegalIssue(id="1", title="issue", description="d", priority=1)
+    reasoner = LegalReasoner(db_session, LLMGateway(provider=MockLLMProvider()))
+    claims, _ = await reasoner.reason(issue, [fabricated], facts=[], effective_at=None)
+
+    case_law_claims = [c for c in claims if c.claim_type == "case_law"]
+    assert case_law_claims[0].verification_status == ClaimVerificationStatus.UNVERIFIED
+    assert case_law_claims[0].citations == []

@@ -85,6 +85,8 @@ class LegalReasoner:
 
     async def _build_rule_claims(self, issue: LegalIssue, evidence: list[EvidenceItem], effective_at) -> list[LegalClaim]:
         law_items = [e for e in evidence if e.metadata.get("chunk_type") == "law_version"]
+        case_law_items = [e for e in evidence if e.metadata.get("chunk_type") == "court_decision"]
+        importance = ClaimImportance.CRITICAL if issue.priority == 1 else ClaimImportance.IMPORTANT
         claims: list[LegalClaim] = []
 
         for item in law_items:
@@ -99,7 +101,29 @@ class LegalReasoner:
                 LegalClaim(
                     claim=f"{item.citation}: {item.text}",
                     claim_type="rule",
-                    importance=ClaimImportance.CRITICAL if issue.priority == 1 else ClaimImportance.IMPORTANT,
+                    importance=importance,
+                    citations=[item.citation] if check.status != CitationStatus.UNVERIFIED else [],
+                    verification_status=_CITATION_STATUS_TO_CLAIM_STATUS.get(check.status, ClaimVerificationStatus.UNVERIFIED),
+                    issue_id=issue.id,
+                )
+            )
+
+        # Retrieved case law was previously ranked (EvidenceRanker) but never
+        # actually cited or verified — a real gap: it could inform a
+        # narrative without ever being independently confirmed to exist.
+        # Every case-law item is now validated the same way a statute
+        # citation is (case_number resolution + source trust), before it can
+        # support any conclusion.
+        for item in case_law_items:
+            case_number = item.metadata.get("case_number")
+            check = await self._validator.validate_case_law(
+                CitationDraft(law_short_name=None, article_number=None, quoted_fragment=None, case_number=case_number)
+            )
+            claims.append(
+                LegalClaim(
+                    claim=f"{item.citation}: {item.text}",
+                    claim_type="case_law",
+                    importance=importance,
                     citations=[item.citation] if check.status != CitationStatus.UNVERIFIED else [],
                     verification_status=_CITATION_STATUS_TO_CLAIM_STATUS.get(check.status, ClaimVerificationStatus.UNVERIFIED),
                     issue_id=issue.id,

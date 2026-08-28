@@ -27,7 +27,7 @@ from app.config.settings import get_settings
 from app.db.session import get_session
 from app.domains.legal_research.models import ResearchMode
 from app.domains.litigation.case_relationships import build_related_litigation_note
-from app.domains.litigation.pipeline import LitigationCaseEngine, MoneyFlowSummary
+from app.domains.litigation.pipeline import AppliedCaseLaw, LitigationCaseEngine, MoneyFlowSummary
 from app.models.matters import (
     Case,
     CaseAllegation,
@@ -52,6 +52,8 @@ from app.repositories.case_repository import CaseRepository
 from app.repositories.document_repository import DocumentRepository
 from app.schemas.case import CaseCreate, CaseOut, CaseUpdate
 from app.schemas.litigation import (
+    AppliedCaseLawOut,
+    AppliedRuleOut,
     BurdenItemOut,
     CaseAllegationOut,
     CaseContradictionOut,
@@ -89,6 +91,7 @@ from app.schemas.litigation import (
     MoneyFlowTransactionOut,
     NextBestActionOut,
     PartyRelationshipFindingOut,
+    UnverifiedAuthorityOut,
 )
 from app.security.deps import get_current_user, get_workspace_id
 from app.security.rate_limit import rate_limit_by_workspace
@@ -979,9 +982,31 @@ async def get_case_legal_theories(
             ],
             verified_legal_authority=t.verified_legal_authority, source_provenance=t.source_provenance,
             confidence=t.confidence, additional_evidence_required=t.additional_evidence_required, research_id=t.research_id,
+            applicable_rules=[
+                AppliedRuleOut(citation=r.citation, text=r.text, verification_status=r.verification_status, provenance=r.provenance)
+                for r in t.applicable_rules
+            ],
+            supporting_case_law=[_to_applied_case_law_out(c) for c in t.supporting_case_law],
+            adverse_case_law=[_to_applied_case_law_out(c) for c in t.adverse_case_law],
+            uncharacterized_case_law=[_to_applied_case_law_out(c) for c in t.uncharacterized_case_law],
+            unverified_authorities=[
+                UnverifiedAuthorityOut(attempted_citation=u.attempted_citation, claim_type=u.claim_type, reason=u.reason)
+                for u in t.unverified_authorities
+            ],
+            reasoning=t.reasoning, adverse_arguments=t.adverse_arguments,
+            unresolved_legal_questions=t.unresolved_legal_questions,
         )
         for t in theories
     ]
+
+
+def _to_applied_case_law_out(c: AppliedCaseLaw) -> AppliedCaseLawOut:
+    return AppliedCaseLawOut(
+        case_number=c.case_number, text=c.text, verification_status=c.verification_status,
+        court_level_label=c.court_level_label, decision_date=c.decision_date, outcome=c.outcome,
+        stance=c.stance, factual_similarity=c.factual_similarity, legal_issue_similarity=c.legal_issue_similarity,
+        distinguishing_facts=c.distinguishing_facts, remains_useful=c.remains_useful,
+    )
 
 
 # --- Explicitly out of scope this phase (brief §58's stop condition) ---

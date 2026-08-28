@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.domains.legal_research.models import AUTHORITY_RANK, AuthorityLevel, EvidenceItem, EvidencePool
 from app.models.case_law import Court, CourtDecision, CourtLevel
 
-_COURT_LEVEL_TO_AUTHORITY = {
+COURT_LEVEL_TO_AUTHORITY = {
     CourtLevel.SUPREME: AuthorityLevel.SUPREME_COURT,
     CourtLevel.CASSATION: AuthorityLevel.CASSATION,
     CourtLevel.APPEAL: AuthorityLevel.APPEAL,
@@ -56,7 +56,7 @@ class EvidenceRanker:
                 )
                 level = result.scalars().first()
                 if level is not None:
-                    return _COURT_LEVEL_TO_AUTHORITY[level]
+                    return COURT_LEVEL_TO_AUTHORITY[level]
             return AuthorityLevel.SECONDARY_SOURCE
 
         if chunk_type == "law_version":

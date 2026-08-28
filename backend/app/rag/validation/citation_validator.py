@@ -40,7 +40,8 @@ from datetime import date
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.legal_knowledge import Law, LawVersion, LegalSource
+from app.models.case_law import CourtDecision
+from app.models.legal_knowledge import Law, LawVersion, LegalDocument, LegalSource
 from app.models.source_document import SourceDocument
 
 
@@ -58,6 +59,10 @@ class CitationDraft:
     article_number: str | None
     quoted_fragment: str | None
     event_date: date | None = None
+    # Case-law identity — mutually exclusive with the law-article fields
+    # above. A CitationDraft targets either a statute (article_number set)
+    # or a court decision (case_number set), never both.
+    case_number: str | None = None
 
 
 @dataclass
@@ -65,6 +70,7 @@ class CitationCheck:
     status: CitationStatus
     reason: str
     law_version_id: str | None = None
+    court_decision_id: str | None = None
     source_id: str | None = None
 
 
@@ -135,6 +141,73 @@ class CitationValidator:
             law_version_id=str(version.id),
             source_id=str(source.id) if source else None,
         )
+
+    async def validate_case_law(self, draft: CitationDraft) -> CitationCheck:
+        """Same discipline as `validate()`, keyed on `case_number` rather
+        than article_number. Two real differences from the law-article path:
+        (1) `CourtDecision` carries no validity window (a decision isn't
+        "in force" the way a statute redaction is) — case law can be
+        superseded or distinguished, but that's a legal-reasoning judgment,
+        not a date-range fact this validator can check, so there is no
+        TEMPORALLY_INVALID branch here; (2) `CourtDecision` has no
+        `source_document_id`/hash-provenance link the way `LawVersion` does
+        (no ingestion path currently stores that for case law), so the
+        tamper-detection hash check is skipped entirely rather than
+        fabricating a check that isn't actually possible — an honest gap,
+        not a silently-passed one.
+        """
+        if not draft.case_number:
+            return CitationCheck(status=CitationStatus.UNVERIFIED, reason="No case number supplied to validate against.")
+
+        result = await self._session.execute(select(CourtDecision).where(CourtDecision.case_number == draft.case_number))
+        decision = result.scalars().first()
+        if decision is None:
+            return CitationCheck(
+                status=CitationStatus.UNVERIFIED,
+                reason="No matching court decision found in the Legal Knowledge Base.",
+            )
+
+        if draft.quoted_fragment:
+            haystack = " ".join(filter(None, [decision.decision_summary, decision.legal_reasoning, decision.claim_summary]))
+            if draft.quoted_fragment.strip() not in haystack:
+                return CitationCheck(
+                    status=CitationStatus.BROKEN,
+                    reason="Quoted fragment does not match the stored decision text.",
+                    court_decision_id=str(decision.id),
+                )
+
+        source = await self._resolve_case_law_source(decision)
+        if source is not None and source.is_mock:
+            return CitationCheck(
+                status=CitationStatus.MOCK,
+                reason="Citation resolves correctly, but its source is a mock/development dataset, not a verified official source.",
+                court_decision_id=str(decision.id),
+                source_id=str(source.id),
+            )
+
+        if source is None or not _is_trusted_source(source):
+            return CitationCheck(
+                status=CitationStatus.UNVERIFIED,
+                reason=(
+                    "Citation resolves to a real court decision record, but its source has not been established "
+                    "as official or otherwise licensed/trusted — this is not enough to mark a citation VERIFIED."
+                ),
+                court_decision_id=str(decision.id),
+                source_id=str(source.id) if source else None,
+            )
+
+        return CitationCheck(
+            status=CitationStatus.VERIFIED,
+            reason="Court decision confirmed against the Legal Knowledge Base.",
+            court_decision_id=str(decision.id),
+            source_id=str(source.id),
+        )
+
+    async def _resolve_case_law_source(self, decision: CourtDecision) -> LegalSource | None:
+        document = await self._session.get(LegalDocument, decision.document_id)
+        if document is None or document.source_id is None:
+            return None
+        return await self._session.get(LegalSource, document.source_id)
 
     async def _find_versions(self, draft: CitationDraft, effective_at: date | None) -> list[LawVersion]:
         stmt = select(LawVersion).where(LawVersion.article_number == draft.article_number)

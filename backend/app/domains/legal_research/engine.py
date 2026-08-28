@@ -16,16 +16,20 @@ import structlog
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.domains.legal_research.case_law_relevance import assess_case_law_relevance
 from app.domains.legal_research.confidence import compute_citation_coverage, compute_confidence, inputs_from_pipeline
 from app.domains.legal_research.conflict_detection import LegalConflictDetector
 from app.domains.legal_research.counterargument import CounterArgumentAgent
-from app.domains.legal_research.evidence_ranking import EvidenceRanker
+from app.domains.legal_research.evidence_ranking import COURT_LEVEL_TO_AUTHORITY, EvidenceRanker
 from app.domains.legal_research.fact_extraction import FactExtractor
 from app.domains.legal_research.issue_identification import IssueIdentifier, ResearchPlanner
 from app.domains.legal_research.models import (
+    CaseLawRelevance,
     ClaimVerificationStatus,
     ConfidenceLevel,
     KnowledgeSnapshot,
+    LegalClaim,
+    LegalIssue,
     LegalResearchRequest,
     LegalResearchResult,
     ResearchMode,
@@ -37,6 +41,7 @@ from app.domains.legal_research.retrieval_pipeline import MultiStageRetriever
 from app.domains.legal_research.review import review
 from app.domains.legal_research.temporal_consistency import TemporalConsistencyChecker, classify_issue_type
 from app.llm.routing.gateway import LLMGateway
+from app.models.case_law import Court, CourtDecision
 from app.models.embedding_chunk import EmbeddingChunk
 
 logger = structlog.get_logger(__name__)
@@ -157,6 +162,16 @@ class LegalResearchEngine:
 
         citations = sorted({cit for c in all_claims for cit in c.citations})
 
+        # Relevance assessment is an enrichment, not part of the core
+        # verified/unverified contract — a failure here (LLM error, etc.)
+        # must never turn an otherwise-successful research result into a
+        # RESEARCH_FAILED; it just means no relevance narrative is attached.
+        try:
+            case_law_relevance = await self._assess_case_law_relevance(all_claims, plan.issues, request.facts)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("case_law_relevance_assessment_failed", error=str(exc))
+            case_law_relevance = []
+
         result = LegalResearchResult(
             executive_conclusion=executive_conclusion or "Недостаточно подтвержденных данных для формирования вывода.",
             confidence=confidence,
@@ -174,6 +189,7 @@ class LegalResearchEngine:
             escalate_to_human=bool(escalation_reasons),
             escalation_reasons=escalation_reasons,
             status=status,
+            case_law_relevance=case_law_relevance,
         )
 
         trace.facts_count = len(facts)
@@ -189,6 +205,45 @@ class LegalResearchEngine:
         total = await self._session.execute(select(func.count()).select_from(EmbeddingChunk))
         mock = await self._session.execute(select(func.count()).select_from(EmbeddingChunk).where(EmbeddingChunk.is_mock.is_(True)))
         return KnowledgeSnapshot(total_chunks=total.scalar_one(), mock_chunks=mock.scalar_one())
+
+    async def _assess_case_law_relevance(
+        self, claims: list[LegalClaim], issues: list[LegalIssue], facts: list[str]
+    ) -> list[CaseLawRelevance]:
+        """Runs only on case-law claims whose citation already resolved to
+        something real (VERIFIED or MOCK) — never on UNVERIFIED ones, since
+        there is nothing to assess the relevance of if the decision itself
+        couldn't be confirmed to exist.
+        """
+        verified_ok = (ClaimVerificationStatus.VERIFIED, ClaimVerificationStatus.MOCK)
+        case_law_claims = [c for c in claims if c.claim_type == "case_law" and c.verification_status in verified_ok]
+        if not case_law_claims:
+            return []
+
+        primary_issue_title = next((i.title for i in issues if i.priority == 1), issues[0].title if issues else "")
+
+        results: list[CaseLawRelevance] = []
+        seen_case_numbers: set[str] = set()
+        for claim in case_law_claims:
+            for case_number in claim.citations:
+                if case_number in seen_case_numbers:
+                    continue
+                seen_case_numbers.add(case_number)
+
+                decision_result = await self._session.execute(select(CourtDecision).where(CourtDecision.case_number == case_number))
+                decision = decision_result.scalars().first()
+                if decision is None:
+                    continue
+
+                level_result = await self._session.execute(select(Court.level).where(Court.id == decision.court_id))
+                level = level_result.scalars().first()
+                authority = COURT_LEVEL_TO_AUTHORITY.get(level) if level else None
+
+                relevance = await assess_case_law_relevance(
+                    self._llm, decision=decision, authority=authority, issue_title=primary_issue_title, case_facts=facts
+                )
+                self._llm_calls += 1
+                results.append(relevance)
+        return results
 
 
 def _ms(start: float) -> float:

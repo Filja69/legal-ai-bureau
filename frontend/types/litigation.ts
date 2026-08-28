@@ -318,3 +318,65 @@ export interface MasterCaseReport {
   money_flow: MoneyFlow;
   legal_kb_warning: string | null;
 }
+
+// --- Legal Theory Layer ---
+// classification: "fact" | "inference" | "legal_theory" | "counsel_hypothesis"
+// Only "legal_theory" rests on an independently verified statute/code citation
+// (CitationValidator) — everything else is explicitly not a verified legal
+// conclusion, however plausible it reads.
+
+export interface EvidenceGap {
+  missing_fact: string;
+  why_it_matters: string;
+  could_be_proven_by: string;
+  strengthens_theory_if_obtained: string;
+}
+
+export interface AppliedRule {
+  citation: string;
+  text: string;
+  verification_status: "verified" | "mock";
+  provenance: string;
+}
+
+export interface AppliedCaseLaw {
+  case_number: string;
+  text: string;
+  verification_status: "verified" | "mock";
+  court_level_label: string | null;
+  decision_date: string | null;
+  outcome: string | null;
+  stance: "supports" | "against" | "distinguishable" | "unclear" | "unassessed";
+  factual_similarity: string;
+  legal_issue_similarity: string;
+  distinguishing_facts: string[];
+  remains_useful: boolean;
+}
+
+export interface UnverifiedAuthority {
+  attempted_citation: string;
+  claim_type: "rule" | "case_law";
+  reason: string;
+}
+
+export interface LegalTheory {
+  theory_name: string;
+  classification: "fact" | "inference" | "legal_theory" | "counsel_hypothesis";
+  supporting_facts: string[];
+  contradicting_facts: string[];
+  alternative_explanations: string[];
+  evidence_gaps: EvidenceGap[];
+  verified_legal_authority: string[];
+  source_provenance: string;
+  confidence: string;
+  additional_evidence_required: string[];
+  research_id: string | null;
+  applicable_rules: AppliedRule[];
+  supporting_case_law: AppliedCaseLaw[];
+  adverse_case_law: AppliedCaseLaw[];
+  uncharacterized_case_law: AppliedCaseLaw[];
+  unverified_authorities: UnverifiedAuthority[];
+  reasoning: string;
+  adverse_arguments: string[];
+  unresolved_legal_questions: string[];
+}

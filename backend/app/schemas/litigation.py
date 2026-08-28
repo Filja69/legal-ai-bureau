@@ -451,6 +451,33 @@ class EvidenceGapOut(BaseModel):
     strengthens_theory_if_obtained: str
 
 
+class AppliedRuleOut(BaseModel):
+    citation: str
+    text: str
+    verification_status: str  # verified | mock
+    provenance: str
+
+
+class AppliedCaseLawOut(BaseModel):
+    case_number: str
+    text: str
+    verification_status: str  # verified | mock
+    court_level_label: str | None
+    decision_date: str | None
+    outcome: str | None
+    stance: str  # supports | against | distinguishable | unclear | unassessed
+    factual_similarity: str
+    legal_issue_similarity: str
+    distinguishing_facts: list[str]
+    remains_useful: bool
+
+
+class UnverifiedAuthorityOut(BaseModel):
+    attempted_citation: str
+    claim_type: str  # rule | case_law
+    reason: str
+
+
 class LegalTheoryOut(BaseModel):
     theory_name: str
     classification: str  # fact | inference | legal_theory | counsel_hypothesis
@@ -463,3 +490,11 @@ class LegalTheoryOut(BaseModel):
     confidence: str
     additional_evidence_required: list[str]
     research_id: str | None
+    applicable_rules: list[AppliedRuleOut] = []
+    supporting_case_law: list[AppliedCaseLawOut] = []
+    adverse_case_law: list[AppliedCaseLawOut] = []
+    uncharacterized_case_law: list[AppliedCaseLawOut] = []
+    unverified_authorities: list[UnverifiedAuthorityOut] = []
+    reasoning: str = ""
+    adverse_arguments: list[str] = []
+    unresolved_legal_questions: list[str] = []
